@@ -25,6 +25,11 @@ extern "C"
 #endif /* __cplusplus */
 
 #ifndef NDEBUG
+
+#ifndef __GNUC__
+#define __builtin_expect(expression, expected_value) (expression)
+#endif /* !__GNUC__ */
+
 #define assert(x) \
   do \
   { \
