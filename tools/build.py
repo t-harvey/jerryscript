@@ -23,6 +23,7 @@ from os import makedirs, uname
 from settings import *
 
 BUILD_DIR = path.join(PROJECT_DIR, 'build')
+DEFAULT_PORT_DIR = path.join(PROJECT_DIR, 'targets/default')
 
 def default_toolchain():
     (sysname, _, _, _, machine) = uname()
@@ -54,9 +55,11 @@ def get_arguments():
     parser.add_argument('--jerry-cmdline-minimal', metavar='X', choices=['ON', 'OFF'], default='OFF', type=str.upper, help='build minimal version of the jerry command line tool (%(choices)s; default: %(default)s)')
     parser.add_argument('--jerry-libc', metavar='X', choices=['ON', 'OFF'], default='ON', type=str.upper, help='build and use jerry-libc (%(choices)s; default: %(default)s)')
     parser.add_argument('--jerry-libm', metavar='X', choices=['ON', 'OFF'], default='ON', type=str.upper, help='build and use jerry-libm (%(choices)s; default: %(default)s)')
+    parser.add_argument('--js-parser', metavar='X', choices=['ON', 'OFF'], default='ON', type=str.upper, help='enable js-parser (%(choices)s; default: %(default)s)')
     parser.add_argument('--link-lib', metavar='OPT', action='append', default=[], help='add custom library to be linked')
     parser.add_argument('--linker-flag', metavar='OPT', action='append', default=[], help='add custom linker flag')
     parser.add_argument('--lto', metavar='X', choices=['ON', 'OFF'], default='ON', type=str.upper, help='enable link-time optimizations (%(choices)s; default: %(default)s)')
+    parser.add_argument('--port-dir', metavar='DIR', action='store', default=DEFAULT_PORT_DIR, help='add port directory (default: %(default)s)')
     parser.add_argument('--profile', metavar='PROFILE', choices=['es5.1', 'minimal', 'es2015-subset'], default='es5.1', type=str.lower, help='specify the profile (%(choices)s; default: %(default)s)')
     parser.add_argument('--snapshot-exec', metavar='X', choices=['ON', 'OFF'], default='OFF', type=str.upper, help='enable executing snapshot files (%(choices)s; default: %(default)s)')
     parser.add_argument('--snapshot-save', metavar='X', choices=['ON', 'OFF'], default='OFF', type=str.upper, help='enable saving snapshot files (%(choices)s; default: %(default)s)')
@@ -95,9 +98,11 @@ def generate_build_options(arguments):
     build_options.append('-DJERRY_CMDLINE_MINIMAL=%s' % arguments.jerry_cmdline_minimal)
     build_options.append('-DJERRY_LIBC=%s' % arguments.jerry_libc)
     build_options.append('-DJERRY_LIBM=%s' % arguments.jerry_libm)
+    build_options.append('-DFEATURE_JS_PARSER=%s' % arguments.js_parser)
     build_options.append('-DEXTERNAL_LINK_LIBS=' + ' '.join(arguments.link_lib))
     build_options.append('-DEXTERNAL_LINKER_FLAGS=' + ' '.join(arguments.linker_flag))
     build_options.append('-DENABLE_LTO=%s' % arguments.lto)
+    build_options.append('-DPORT_DIR=%s' % arguments.port_dir)
     build_options.append('-DFEATURE_PROFILE=%s' % arguments.profile)
     build_options.append('-DFEATURE_SNAPSHOT_EXEC=%s' % arguments.snapshot_exec)
     build_options.append('-DFEATURE_SNAPSHOT_SAVE=%s' % arguments.snapshot_save)
