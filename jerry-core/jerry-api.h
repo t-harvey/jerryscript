@@ -230,6 +230,14 @@ jerry_size_t jerry_get_utf8_string_size (const jerry_value_t value);
 jerry_length_t jerry_get_string_length (const jerry_value_t value);
 jerry_length_t jerry_get_utf8_string_length (const jerry_value_t value);
 jerry_size_t jerry_string_to_char_buffer (const jerry_value_t value, jerry_char_t *buffer_p, jerry_size_t buffer_size);
+jerry_size_t jerry_string_to_utf8_char_buffer (const jerry_value_t value,
+                                               jerry_char_t *buffer_p,
+                                               jerry_size_t buffer_size);
+jerry_size_t jerry_substring_to_char_buffer (const jerry_value_t value,
+                                             jerry_length_t start_pos,
+                                             jerry_length_t end_pos,
+                                             jerry_char_t *buffer_p,
+                                             jerry_size_t buffer_size);
 
 /**
  * Functions for array object values
@@ -320,6 +328,8 @@ bool jerry_foreach_object_property (const jerry_value_t obj_val, jerry_object_pr
 size_t jerry_parse_and_save_snapshot (const jerry_char_t *source_p, size_t source_size, bool is_for_global,
                                       bool is_strict, uint8_t *buffer_p, size_t buffer_size);
 jerry_value_t jerry_exec_snapshot (const void *snapshot_p, size_t snapshot_size, bool copy_bytecode);
+size_t jerry_parse_and_save_literals (const jerry_char_t *source_p, size_t source_size, bool is_strict,
+                                      uint8_t *buffer_p, size_t buffer_size, bool is_c_format);
 
 /**
  * @}

@@ -150,8 +150,8 @@ handler_construct (const jerry_value_t func_obj_val, /**< function object */
  */
 #define JERRY_MAGIC_STRING_ITEMS \
   JERRY_MAGIC_STRING_DEF (GLOBAL, global) \
-  JERRY_MAGIC_STRING_DEF (CONSOLE, console) \
-  JERRY_MAGIC_STRING_DEF (GREEK_ZERO_SIGN, \xed\xa0\x80\xed\xb6\x8a)
+  JERRY_MAGIC_STRING_DEF (GREEK_ZERO_SIGN, \xed\xa0\x80\xed\xb6\x8a) \
+  JERRY_MAGIC_STRING_DEF (CONSOLE, console)
 
 #define JERRY_MAGIC_STRING_DEF(NAME, STRING) \
   static const char jerry_magic_string_ex_ ## NAME[] = # STRING;
@@ -345,7 +345,7 @@ main (void)
   args[0] = jerry_create_string_from_utf8 ((jerry_char_t *) "\x73\x74\x72\x3a \xf0\x90\x90\x80");
   args[1] = jerry_create_string ((jerry_char_t *) "\x73\x74\x72\x3a \xed\xa0\x81\xed\xb0\x80");
 
-  /* these size must be equal */
+  /* These sizes must be equal */
   utf8_sz = jerry_get_string_size (args[0]);
   cesu8_sz = jerry_get_string_size (args[1]);
 
@@ -357,6 +357,26 @@ main (void)
 
   TEST_ASSERT (utf8_sz == cesu8_sz);
   TEST_ASSERT (!strncmp (string_from_utf8, string_from_cesu8, utf8_sz));
+  jerry_release_value (args[0]);
+  jerry_release_value (args[1]);
+
+  /* Test jerry_string_to_utf8_char_buffer, test string: 'str: {DESERET CAPITAL LETTER LONG I}' */
+  args[0] = jerry_create_string_from_utf8 ((jerry_char_t *) "\x73\x74\x72\x3a \xf0\x90\x90\x80");
+  args[1] = jerry_create_string ((jerry_char_t *) "\x73\x74\x72\x3a \xed\xa0\x81\xed\xb0\x80");
+
+  /* These sizes must be equal */
+  utf8_sz = jerry_get_utf8_string_size (args[0]);
+  cesu8_sz = jerry_get_utf8_string_size (args[1]);
+
+  TEST_ASSERT (utf8_sz == cesu8_sz);
+
+  char string_from_utf8_string[utf8_sz];
+  char string_from_cesu8_string[cesu8_sz];
+
+  jerry_string_to_utf8_char_buffer (args[0], (jerry_char_t *) string_from_utf8_string, utf8_sz);
+  jerry_string_to_utf8_char_buffer (args[1], (jerry_char_t *) string_from_cesu8_string, cesu8_sz);
+
+  TEST_ASSERT (!strncmp (string_from_utf8_string, string_from_cesu8_string, utf8_sz));
   jerry_release_value (args[0]);
   jerry_release_value (args[1]);
 
@@ -372,6 +392,12 @@ main (void)
   TEST_ASSERT (cesu8_length == 10 && utf8_length == 8);
   TEST_ASSERT (cesu8_sz != utf8_sz);
   TEST_ASSERT (utf8_sz == 14 && cesu8_sz == 18);
+
+  char test_string[utf8_sz];
+
+  TEST_ASSERT (jerry_string_to_utf8_char_buffer (args[0], (jerry_char_t *) test_string, utf8_sz) == 14);
+  TEST_ASSERT (!strncmp (test_string, "\x73\x74\x72\x3a \xf0\x9d\x94\xa3 \xf0\x9d\x94\xa4", utf8_sz));
+
   jerry_release_value (args[0]);
 
   /* Test string: 'str: {DESERET CAPITAL LETTER LONG I}' */
@@ -404,6 +430,95 @@ main (void)
   TEST_ASSERT (utf8_sz == 12);
   jerry_release_value (args[0]);
 
+  /* Test jerry_substring_to_char_buffer */
+  args[0] = jerry_create_string ((jerry_char_t *) "an ascii string");
+
+  /* Buffer size */
+  cesu8_sz = 5;
+
+  char substring[cesu8_sz];
+  sz = jerry_substring_to_char_buffer (args[0], 3, 8, (jerry_char_t *) substring, cesu8_sz);
+  TEST_ASSERT (sz == 5);
+  TEST_ASSERT (!strncmp (substring, "ascii", sz));
+
+  /* Buffer size is 5, substring length is 11 => copied only the first 5 char */
+  sz = jerry_substring_to_char_buffer (args[0], 0, 11, (jerry_char_t *) substring, cesu8_sz);
+
+  TEST_ASSERT (sz == 5);
+  TEST_ASSERT (!strncmp (substring, "an as", sz));
+
+  /* Position of the first character is greater than the string length */
+  sz = jerry_substring_to_char_buffer (args[0], 16, 21, (jerry_char_t *) substring, cesu8_sz);
+  TEST_ASSERT (sz == 0);
+
+  sz = jerry_substring_to_char_buffer (args[0], 14, 15, (jerry_char_t *) substring, cesu8_sz);
+  TEST_ASSERT (sz == 1);
+  TEST_ASSERT (!strncmp (substring, "g", sz));
+
+  sz = jerry_substring_to_char_buffer (args[0], 0, 1, (jerry_char_t *) substring, cesu8_sz);
+  TEST_ASSERT (sz == 1);
+  TEST_ASSERT (!strncmp (substring, "a", sz));
+
+  cesu8_length = jerry_get_string_length (args[0]);
+  cesu8_sz = jerry_get_string_size (args[0]);
+  TEST_ASSERT (cesu8_length == 15);
+  TEST_ASSERT (cesu8_length == cesu8_sz);
+
+  sz = jerry_substring_to_char_buffer (args[0], 0, cesu8_length, (jerry_char_t *) substring, cesu8_sz);
+  TEST_ASSERT (sz = 15);
+  TEST_ASSERT (!strncmp (substring, "an ascii string", sz));
+
+  jerry_release_value (args[0]);
+
+  /* Test jerry_substring_to_char_buffer: '0101' */
+  args[0] = jerry_create_string ((jerry_char_t *) "0101");
+  cesu8_sz = jerry_get_string_size (args[0]);
+
+  char number_substring[cesu8_sz];
+
+  sz = jerry_substring_to_char_buffer (args[0], 1, 3, (jerry_char_t *) number_substring, cesu8_sz);
+  TEST_ASSERT (sz == 2);
+  TEST_ASSERT (!strncmp (number_substring, "10", sz));
+
+  jerry_release_value (args[0]);
+
+  /* Test jerry_substring_to_char_buffer: 'str: {greek zero sign}' */
+  args[0] = jerry_create_string ((jerry_char_t *) "\x73\x74\x72\x3a \xed\xa0\x80\xed\xb6\x8a");
+  cesu8_sz = jerry_get_string_size (args[0]);
+  cesu8_length = jerry_get_string_length (args[0]);
+  TEST_ASSERT (cesu8_sz == 11);
+  TEST_ASSERT (cesu8_length = 7);
+
+  char supl_substring[cesu8_sz];
+
+  sz = jerry_substring_to_char_buffer (args[0], 0, cesu8_length, (jerry_char_t *) supl_substring, cesu8_sz);
+  TEST_ASSERT (sz == 11);
+  TEST_ASSERT (!strncmp (supl_substring, "\x73\x74\x72\x3a \xed\xa0\x80\xed\xb6\x8a", sz));
+
+  /* Decrease the buffer size => the low surrogate char will not fit into the buffer */
+  cesu8_sz -= 1;
+  sz = jerry_substring_to_char_buffer (args[0], 0, cesu8_length, (jerry_char_t *) supl_substring, cesu8_sz);
+  TEST_ASSERT (sz == 8);
+  TEST_ASSERT (!strncmp (supl_substring, "\x73\x74\x72\x3a \xed\xa0\x80", sz));
+
+  sz = jerry_substring_to_char_buffer (args[0],
+                                       cesu8_length - 1,
+                                       cesu8_length,
+                                       (jerry_char_t *) supl_substring,
+                                       cesu8_sz);
+  TEST_ASSERT (sz == 3);
+  TEST_ASSERT (!strncmp (supl_substring, "\xed\xb6\x8a", sz));
+
+  sz = jerry_substring_to_char_buffer (args[0],
+                                       cesu8_length - 2,
+                                       cesu8_length - 1,
+                                       (jerry_char_t *) supl_substring,
+                                       cesu8_sz);
+  TEST_ASSERT (sz == 3);
+  TEST_ASSERT (!strncmp (supl_substring, "\xed\xa0\x80", sz));
+
+  jerry_release_value (args[0]);
+
   /* Get global.boo (non-existing field) */
   val_t = get_property (global_obj_val, "boo");
   TEST_ASSERT (!jerry_value_has_error_flag (val_t));
@@ -413,7 +528,7 @@ main (void)
   val_t = get_property (global_obj_val, "t");
   TEST_ASSERT (!jerry_value_has_error_flag (val_t));
   TEST_ASSERT (jerry_value_is_number (val_t)
-                && jerry_get_number_value (val_t) == 1.0);
+               && jerry_get_number_value (val_t) == 1.0);
   jerry_release_value (val_t);
 
   /* Get global.foo */
@@ -427,7 +542,7 @@ main (void)
   res = jerry_call_function (val_foo, jerry_create_undefined (), args, 2);
   TEST_ASSERT (!jerry_value_has_error_flag (res));
   TEST_ASSERT (jerry_value_is_number (res)
-                && jerry_get_number_value (res) == 1.0);
+               && jerry_get_number_value (res) == 1.0);
   jerry_release_value (res);
 
   /* Get global.bar */
@@ -439,7 +554,7 @@ main (void)
   res = jerry_call_function (val_bar, jerry_create_undefined (), args, 2);
   TEST_ASSERT (!jerry_value_has_error_flag (res));
   TEST_ASSERT (jerry_value_is_number (res)
-                && jerry_get_number_value (res) == 5.0);
+               && jerry_get_number_value (res) == 5.0);
   jerry_release_value (res);
   jerry_release_value (val_bar);
 
@@ -494,7 +609,7 @@ main (void)
   res = get_property (val_a, "t");
   TEST_ASSERT (!jerry_value_has_error_flag (res));
   TEST_ASSERT (jerry_value_is_number (res)
-                && jerry_get_number_value (res) == 12.0);
+               && jerry_get_number_value (res) == 12.0);
   jerry_release_value (res);
 
   /* foreach properties */
@@ -524,7 +639,7 @@ main (void)
   res = jerry_call_function (val_a_foo, val_a, NULL, 0);
   TEST_ASSERT (!jerry_value_has_error_flag (res));
   TEST_ASSERT (jerry_value_is_number (res)
-                && jerry_get_number_value (res) == 12.0);
+               && jerry_get_number_value (res) == 12.0);
   jerry_release_value (res);
   jerry_release_value (val_a_foo);
 
@@ -533,7 +648,7 @@ main (void)
   /* Create native handler bound function object and set it to 'external' variable */
   external_func_val = jerry_create_external_function (handler);
   TEST_ASSERT (jerry_value_is_function (external_func_val)
-                && jerry_value_is_constructor (external_func_val));
+               && jerry_value_is_constructor (external_func_val));
 
   res = set_property (global_obj_val, "external", external_func_val);
   TEST_ASSERT (!jerry_value_has_error_flag (res));
@@ -558,7 +673,7 @@ main (void)
   /* Create native handler bound function object and set it to 'external_construct' variable */
   external_construct_val = jerry_create_external_function (handler_construct);
   TEST_ASSERT (jerry_value_is_function (external_construct_val)
-                && jerry_value_is_constructor (external_construct_val));
+               && jerry_value_is_constructor (external_construct_val));
 
   res = set_property (global_obj_val, "external_construct", external_construct_val);
   TEST_ASSERT (!jerry_value_has_error_flag (res));
@@ -575,14 +690,14 @@ main (void)
   /* Get 'value_field' of constructed object */
   TEST_ASSERT (!jerry_value_has_error_flag (val_value_field));
   TEST_ASSERT (jerry_value_is_boolean (val_value_field)
-                && jerry_get_boolean_value (val_value_field));
+               && jerry_get_boolean_value (val_value_field));
   jerry_release_value (val_value_field);
   jerry_release_value (external_construct_val);
 
   uintptr_t ptr = (uintptr_t) NULL;
   is_ok = jerry_get_object_native_handle (res, &ptr);
   TEST_ASSERT (is_ok
-                && ptr == (uintptr_t) 0x0012345678abcdefull);
+               && ptr == (uintptr_t) 0x0012345678abcdefull);
 
   jerry_release_value (res);
 
@@ -664,7 +779,7 @@ main (void)
   jerry_value_t v_out = jerry_get_property_by_index (array_obj_val, 5);
 
   TEST_ASSERT (jerry_value_is_number (v_out)
-                && jerry_get_number_value (v_out) == 10.5);
+               && jerry_get_number_value (v_out) == 10.5);
 
   jerry_release_value (v_in);
   jerry_release_value (v_out);
@@ -761,7 +876,7 @@ main (void)
   res = jerry_call_function (val_t, jerry_create_undefined (), NULL, 0);
   TEST_ASSERT (!jerry_value_has_error_flag (res));
   TEST_ASSERT (jerry_value_is_number (res)
-                && jerry_get_number_value (res) == 123.0);
+               && jerry_get_number_value (res) == 123.0);
   jerry_release_value (res);
 
   jerry_release_value (val_t);
@@ -865,7 +980,8 @@ main (void)
   jerry_cleanup ();
 
   /* Dump / execute snapshot */
-  if (jerry_is_feature_enabled (JERRY_FEATURE_SNAPSHOT_EXEC))
+  if (jerry_is_feature_enabled (JERRY_FEATURE_SNAPSHOT_SAVE)
+      && jerry_is_feature_enabled (JERRY_FEATURE_SNAPSHOT_EXEC))
   {
     static uint8_t global_mode_snapshot_buffer[1024];
     static uint8_t eval_mode_snapshot_buffer[1024];
@@ -919,6 +1035,62 @@ main (void)
     TEST_ASSERT (sz == 20);
     jerry_release_value (res);
     TEST_ASSERT (!strncmp (buffer, "string from snapshot", (size_t) sz));
+
+    jerry_cleanup ();
+  }
+
+  /* Save literals */
+  if (jerry_is_feature_enabled (JERRY_FEATURE_SNAPSHOT_SAVE))
+  {
+    /* C format generation */
+    jerry_init (JERRY_INIT_EMPTY);
+
+    static jerry_char_t literal_buffer_c[256];
+    static const char *code_for_c_format_p = "var object = { aa:'fo o', Bb:'max', aaa:'xzy0' };";
+
+    size_t literal_sizes_c_format = jerry_parse_and_save_literals ((jerry_char_t *) code_for_c_format_p,
+                                                                   strlen (code_for_c_format_p),
+                                                                   false,
+                                                                   literal_buffer_c,
+                                                                   sizeof (literal_buffer_c),
+                                                                   true);
+    TEST_ASSERT (literal_sizes_c_format == 203);
+
+    static const char *expected_c_format = (
+                                            "jerry_length_t literal_count = 4;\n\n"
+                                            "jerry_char_ptr_t literals[4] =\n"
+                                            "{\n"
+                                            "  \"Bb\",\n"
+                                            "  \"aa\",\n"
+                                            "  \"aaa\",\n"
+                                            "  \"xzy0\"\n"
+                                            "};\n\n"
+                                            "jerry_length_t literal_sizes[4] =\n"
+                                            "{\n"
+                                            "  2 /* Bb */,\n"
+                                            "  2 /* aa */,\n"
+                                            "  3 /* aaa */,\n"
+                                            "  4 /* xzy0 */\n"
+                                            "};\n"
+                                            );
+
+    TEST_ASSERT (!strncmp ((char *) literal_buffer_c, expected_c_format, literal_sizes_c_format));
+    jerry_cleanup ();
+
+    /* List format generation */
+    jerry_init (JERRY_INIT_EMPTY);
+
+    static jerry_char_t literal_buffer_list[256];
+    static const char *code_for_list_format_p = "var obj = { a:'aa', bb:'Bb' };";
+
+    size_t literal_sizes_list_format = jerry_parse_and_save_literals ((jerry_char_t *) code_for_list_format_p,
+                                                                      strlen (code_for_list_format_p),
+                                                                      false,
+                                                                      literal_buffer_list,
+                                                                      sizeof (literal_buffer_list),
+                                                                      false);
+    TEST_ASSERT (literal_sizes_list_format == 25);
+    TEST_ASSERT (!strncmp ((char *) literal_buffer_list, "1 a\n2 Bb\n2 aa\n2 bb\n3 obj\n", literal_sizes_list_format));
 
     jerry_cleanup ();
   }
