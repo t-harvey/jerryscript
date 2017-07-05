@@ -153,8 +153,8 @@ ecma_builtin_number_prototype_helper_round (lit_utf8_byte_t *digits_p, /**< [in,
 
     int i = 1;
 
-    /* Handle curry number. */
-    for (; i < (int) num_digits; i++)
+    /* Handle carry number. */
+    for (; i <= round_num; i++)
     {
       if (++digits_p[round_num - i] <= '9')
       {
@@ -164,7 +164,7 @@ ecma_builtin_number_prototype_helper_round (lit_utf8_byte_t *digits_p, /**< [in,
     }
 
     /* Prepend highest digit */
-    if (i >= (int) num_digits)
+    if (i > round_num)
     {
       memmove (digits_p + 1, digits_p, num_digits);
       digits_p[0] = '1';
@@ -253,10 +253,15 @@ ecma_builtin_number_prototype_object_to_string (ecma_value_t this_arg, /**< this
         scale = -scale;
       }
 
-      int buff_size;
+      int buff_size = 1;
       if (is_scale_negative)
       {
-        buff_size = (int) floor (log (this_arg_number) / log (radix)) + 1;
+        double counter = this_arg_number;
+        while (counter > radix)
+        {
+          counter /= radix;
+          buff_size++;
+        }
       }
       else
       {
@@ -393,7 +398,7 @@ ecma_builtin_number_prototype_object_to_string (ecma_value_t this_arg, /**< this
       /* Place radix point to the required position. */
       if (point < buff_index)
       {
-        memmove (buff + point + 1, buff + point,  (size_t) buff_index);
+        memmove (buff + point + 1, buff + point, (size_t) (buff_index - point));
         buff[point] = '.';
         buff_index++;
       }

@@ -17,8 +17,8 @@
 
 #include <stdlib.h>
 
-#include "jerry-core/jerry-api.h"
- 
+#include "jerry-core/include/jerryscript.h"
+
 #include "jerryscript-mbed-util/logging.h"
 #include "jerryscript-mbed-util/wrappers.h"
 

@@ -28,6 +28,11 @@ API_EXAMPLES_MD="03.API-EXAMPLE.md"
 INTERNALS_MD="04.INTERNALS.md"
 PORT_API_MD="05.PORT-API.md"
 REFERENCE_COUNTING_MD="06.REFERENCE-COUNTING.md"
+DEBUGGER_MD="07.DEBUGGER.md"
+CODING_STANDARDS_MD="08.CODING-STANDARDS.md"
+EXT_REFERENCE_ARG_MD="09.EXT-REFERENCE-ARG.md"
+EXT_REFERENCE_HANDLER_MD="10.EXT-REFERENCE-HANDLER.md"
+EXT_REFERENCE_AUTORELEASE_MD="11.EXT-REFERENCE-AUTORELEASE.md"
 
 declare -A titles
 
@@ -36,7 +41,12 @@ titles[$API_REFERENCE_MD]="API Reference"
 titles[$API_EXAMPLES_MD]="API Examples"
 titles[$INTERNALS_MD]="Internals"
 titles[$PORT_API_MD]="Port API"
-titles[$REFERENCE_COUNTING_MD]="Reference counting"
+titles[$REFERENCE_COUNTING_MD]="Reference Counting"
+titles[$DEBUGGER_MD]="Debugger"
+titles[$CODING_STANDARDS_MD]="Coding Standards"
+titles[$EXT_REFERENCE_ARG_MD]="'Extension API: Argument Validation'"
+titles[$EXT_REFERENCE_HANDLER_MD]="'Extension API: External Function Handlers'"
+titles[$EXT_REFERENCE_AUTORELEASE_MD]="'Extension API: Autorelease Values'"
 
 for docfile in $docs_dir/*.md; do
   docfile_base=`basename $docfile`
@@ -44,10 +54,14 @@ for docfile in $docs_dir/*.md; do
   permalink=`echo $docfile_base | cut -d'.' -f 2 | tr '[:upper:]' '[:lower:]'`
   missing_title=`echo $permalink | tr '-' ' '`
 
+  # the first three documents belong to the navigation bar
+  category=$([[ $docfile_base =~ ^0[1-3] ]] && echo "navbar" || echo "documents")
+
   # generate appropriate header for each *.md
   echo "---"                                             >  $gh_pages_dir/$docfile_base
   echo "layout: page"                                    >> $gh_pages_dir/$docfile_base
   echo "title: ${titles[$docfile_base]:-$missing_title}" >> $gh_pages_dir/$docfile_base
+  echo "category: ${category}"                           >> $gh_pages_dir/$docfile_base
   echo "permalink: /$permalink/"                         >> $gh_pages_dir/$docfile_base
   echo "---"                                             >> $gh_pages_dir/$docfile_base
   echo                                                   >> $gh_pages_dir/$docfile_base
@@ -69,9 +83,6 @@ for docfile in $docs_dir/*.md; do
     link_end_pos = index(line_remain, ")")
     link = substr(line_remain, 1, link_end_pos-1);
     line_end = substr(line_remain, link_end_pos)
-
-    # delete underscores form the link
-    gsub(/_/, "", link);
 
     printf "%s%s%s\n", line_beg, link, line_end
   }

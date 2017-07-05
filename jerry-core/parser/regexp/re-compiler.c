@@ -19,7 +19,7 @@
 #include "ecma-try-catch-macro.h"
 #include "jcontext.h"
 #include "jrt-libc-includes.h"
-#include "jmem-heap.h"
+#include "jmem.h"
 #include "re-bytecode.h"
 #include "re-compiler.h"
 #include "re-parser.h"
@@ -387,7 +387,7 @@ re_parse_alternative (re_compiler_ctx_t *re_ctx_p, /**< RegExp compiler context 
                                                        : RE_OP_CHAR_CLASS);
         uint32_t offset = re_get_bytecode_length (re_ctx_p->bytecode_ctx_p);
 
-        ECMA_TRY_CATCH (empty,
+        ECMA_TRY_CATCH (empty_value,
                         re_parse_char_class (re_ctx_p->parser_ctx_p,
                                              re_append_char_class,
                                              re_ctx_p,
@@ -400,7 +400,7 @@ re_parse_alternative (re_compiler_ctx_t *re_ctx_p, /**< RegExp compiler context 
           re_insert_simple_iterator (re_ctx_p, new_atom_start_offset);
         }
 
-        ECMA_FINALIZE (empty);
+        ECMA_FINALIZE (empty_value);
 
         break;
       }
@@ -488,7 +488,7 @@ re_find_bytecode_in_cache (ecma_string_t *pattern_str_p, /**< pattern string */
  * Run gerbage collection in RegExp cache
  */
 void
-re_cache_gc_run ()
+re_cache_gc_run (void)
 {
   for (uint32_t i = 0u; i < RE_CACHE_SIZE; i++)
   {
@@ -601,7 +601,7 @@ re_compile_bytecode (const re_compiled_code_t **out_bytecode_p, /**< [out] point
   else
   {
 #ifdef REGEXP_DUMP_BYTE_CODE
-    if (JERRY_CONTEXT (jerry_init_flags) & JERRY_INIT_SHOW_REGEXP_OPCODES)
+    if (JERRY_CONTEXT (jerry_init_flags) & ECMA_INIT_SHOW_REGEXP_OPCODES)
     {
       re_dump_bytecode (&bc_ctx);
     }

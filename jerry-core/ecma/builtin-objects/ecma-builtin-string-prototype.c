@@ -817,7 +817,7 @@ ecma_builtin_string_prototype_object_replace_get_string (ecma_builtin_replace_se
 
     if (ecma_is_value_empty (ret_value))
     {
-      arguments_list[match_length] = ecma_make_number_value (context_p->match_start);
+      arguments_list[match_length] = ecma_make_uint32_value (context_p->match_start);
       arguments_list[match_length + 1] = ecma_copy_value (context_p->input_string);
 
       ECMA_TRY_CATCH (result_value,
@@ -998,7 +998,6 @@ ecma_builtin_string_prototype_object_replace_get_string (ecma_builtin_replace_se
           }
 
           ecma_string_t *index_string_p = ecma_new_ecma_string_from_uint32 (index);
-          ecma_object_t *match_object_p = ecma_get_object_from_value (match_value);
 
           ECMA_TRY_CATCH (submatch_value,
                           ecma_op_object_get (match_object_p, index_string_p),
@@ -1118,7 +1117,7 @@ ecma_builtin_string_prototype_object_replace_loop (ecma_builtin_replace_search_c
           ECMA_TRY_CATCH (put_value,
                           ecma_op_object_put (regexp_obj_p,
                                               last_index_string_p,
-                                              ecma_make_number_value (context_p->match_end + 1),
+                                              ecma_make_uint32_value (context_p->match_end + 1),
                                               true),
                           ret_value);
 
@@ -1522,14 +1521,15 @@ ecma_builtin_helper_split_match (ecma_value_t input_string, /**< first argument 
 
     ret_value = ecma_regexp_exec_helper (regexp_value, ecma_make_string_value (substr_str_p), true);
 
-    if (!ecma_is_value_null (ret_value))
+    if (!ECMA_IS_VALUE_ERROR (ret_value)
+        && !ecma_is_value_null (ret_value))
     {
       ecma_object_t *obj_p = ecma_get_object_from_value (ret_value);
       ecma_string_t *magic_index_str_p = ecma_get_magic_string (LIT_MAGIC_STRING_INDEX);
       ecma_property_value_t *index_prop_value_p = ecma_get_named_data_property (obj_p, magic_index_str_p);
 
       ecma_number_t index_num = ecma_get_number_from_value (index_prop_value_p->value);
-      ecma_value_assign_number (&index_prop_value_p->value, index_num + start_idx);
+      ecma_value_assign_number (&index_prop_value_p->value, index_num + (ecma_number_t) start_idx);
 
       ecma_deref_ecma_string (magic_index_str_p);
     }
@@ -1774,7 +1774,8 @@ ecma_builtin_string_prototype_object_split (ecma_value_t this_arg, /**< this arg
                                                                          separator);
 
             /* 13.b */
-            if (ecma_is_value_null (match_result))
+            if (ecma_is_value_null (match_result)
+                || ECMA_IS_VALUE_ERROR (match_result))
             {
               curr_pos++;
             }
@@ -1862,18 +1863,18 @@ ecma_builtin_string_prototype_object_split (ecma_value_t this_arg, /**< this arg
                 ecma_string_t *idx_str_p = ecma_new_ecma_string_from_uint32 (i);
                 ecma_string_t *new_array_idx_str_p = ecma_new_ecma_string_from_uint32 (new_array_length);
 
-                ecma_value_t match_comp_value = ecma_op_object_get (match_array_obj_p, idx_str_p);
+                match_comp_value = ecma_op_object_get (match_array_obj_p, idx_str_p);
 
                 JERRY_ASSERT (!ECMA_IS_VALUE_ERROR (match_comp_value));
 
                 /* 13.c.iii.7.b */
-                ecma_value_t put_comp = ecma_builtin_helper_def_prop (new_array_p,
-                                                                      new_array_idx_str_p,
-                                                                      match_comp_value,
-                                                                      true,
-                                                                      true,
-                                                                      true,
-                                                                      false);
+                put_comp = ecma_builtin_helper_def_prop (new_array_p,
+                                                         new_array_idx_str_p,
+                                                         match_comp_value,
+                                                         true,
+                                                         true,
+                                                         true,
+                                                         false);
 
                 JERRY_ASSERT (ecma_is_value_true (put_comp));
 

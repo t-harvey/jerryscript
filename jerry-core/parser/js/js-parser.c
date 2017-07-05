@@ -13,13 +13,14 @@
  * limitations under the License.
  */
 
+#include "debugger.h"
 #include "ecma-exceptions.h"
 #include "ecma-helpers.h"
 #include "ecma-literal-storage.h"
 #include "jcontext.h"
 #include "js-parser-internal.h"
 
-#ifdef JERRY_JS_PARSER
+#if JERRY_JS_PARSER
 
 /** \addtogroup parser Parser
  * @{
@@ -30,6 +31,94 @@
  * \addtogroup jsparser_parser Parser
  * @{
  */
+
+/**
+ * Copy identifiers if needed.
+ */
+static void
+parser_copy_identifiers (parser_context_t *context_p) /**< context */
+{
+  parser_saved_context_t *parent_p = context_p->last_context_p;
+
+  if (parent_p == NULL || parent_p->prev_context_p == NULL)
+  {
+    /* Return if this function is not a nested function. */
+    return;
+  }
+
+  if (context_p->status_flags & PARSER_NO_REG_STORE)
+  {
+    /* This flag must affect all parent functions. */
+    parent_p->status_flags |= PARSER_NO_REG_STORE;
+    return;
+  }
+
+  parser_list_iterator_t literal_iterator;
+  lexer_literal_t *literal_p;
+
+  parser_list_t parent_literal_pool;
+
+  /* Accessing the parent literal pool requires all data. */
+  parent_literal_pool.data = parent_p->literal_pool_data;
+  parent_literal_pool.page_size = context_p->literal_pool.page_size;
+  parent_literal_pool.item_size = context_p->literal_pool.item_size;
+  parent_literal_pool.item_count = context_p->literal_pool.item_count;
+
+  parser_list_iterator_init (&context_p->literal_pool, &literal_iterator);
+  while ((literal_p = (lexer_literal_t *) parser_list_iterator_next (&literal_iterator)))
+  {
+    if (literal_p->type != LEXER_IDENT_LITERAL || (literal_p->status_flags & LEXER_FLAG_VAR))
+    {
+      continue;
+    }
+
+    parser_list_iterator_t parent_literal_iterator;
+    parser_list_iterator_init (&parent_literal_pool, &parent_literal_iterator);
+
+    lexer_literal_t *parent_literal_p;
+    const uint8_t *char_p = literal_p->u.char_p;
+    size_t length = literal_p->prop.length;
+
+    while ((parent_literal_p = (lexer_literal_t *) parser_list_iterator_next (&parent_literal_iterator)) != NULL)
+    {
+      if (parent_literal_p->type == LEXER_IDENT_LITERAL
+          && parent_literal_p->prop.length == length
+          && memcmp (parent_literal_p->u.char_p, char_p, length) == 0)
+      {
+        /* This literal is known by the parent. */
+        parent_literal_p->status_flags |= LEXER_FLAG_NO_REG_STORE;
+        break;
+      }
+    }
+
+    if (parent_literal_p != NULL)
+    {
+      continue;
+    }
+
+    if (parent_p->literal_count >= PARSER_MAXIMUM_NUMBER_OF_LITERALS)
+    {
+      parser_raise_error (context_p, PARSER_ERR_LITERAL_LIMIT_REACHED);
+    }
+
+    parent_literal_p = (lexer_literal_t *) parser_list_append (context_p, &parent_literal_pool);
+
+    /* The literal data is updated at every iteration to handle out-of memory. */
+    parent_p->literal_pool_data = parent_literal_pool.data;
+
+    parent_literal_p->prop.length = (uint16_t) length;
+    parent_literal_p->type = LEXER_IDENT_LITERAL;
+    parent_literal_p->status_flags = (uint8_t) (literal_p->status_flags & LEXER_FLAG_SOURCE_PTR);
+    parent_literal_p->status_flags |= LEXER_FLAG_NO_REG_STORE | LEXER_FLAG_UNUSED_IDENT;
+    parent_literal_p->u.char_p = char_p;
+
+    /* The buffer ownership is passed to the parent by
+     * setting this flag which prevents freeing the buffer. */
+    literal_p->status_flags |= LEXER_FLAG_SOURCE_PTR;
+
+    parent_p->literal_count++;
+  }
+} /* parser_copy_identifiers */
 
 /**
  * Compute real literal indicies.
@@ -73,6 +162,12 @@ parser_compute_indicies (parser_context_t *context_p, /**< context */
   parser_list_iterator_init (&context_p->literal_pool, &literal_iterator);
   while ((literal_p = (lexer_literal_t *) parser_list_iterator_next (&literal_iterator)))
   {
+    if (literal_p->status_flags & LEXER_FLAG_UNUSED_IDENT)
+    {
+      context_p->literal_count--;
+      continue;
+    }
+
 #ifndef PARSER_DUMP_BYTE_CODE
     if (literal_p->type == LEXER_IDENT_LITERAL
         || literal_p->type == LEXER_STRING_LITERAL)
@@ -124,7 +219,7 @@ parser_compute_indicies (parser_context_t *context_p, /**< context */
             {
               JERRY_ASSERT (literal_p == PARSER_GET_LITERAL (0));
 
-              status_flags |= PARSER_NAMED_FUNCTION_EXP | PARSER_NO_REG_STORE | PARSER_LEXICAL_ENV_NEEDED;
+              status_flags |= PARSER_NAMED_FUNCTION_EXP;
               context_p->status_flags = status_flags;
 
               literal_p->status_flags |= LEXER_FLAG_NO_REG_STORE;
@@ -172,6 +267,12 @@ parser_compute_indicies (parser_context_t *context_p, /**< context */
           {
             literal_p->status_flags |= LEXER_FLAG_NO_REG_STORE;
             uninitialized_var_count++;
+          }
+
+          if (literal_p->status_flags & LEXER_FLAG_NO_REG_STORE)
+          {
+            status_flags |= PARSER_LEXICAL_ENV_NEEDED;
+            context_p->status_flags = status_flags;
           }
         }
         else
@@ -248,6 +349,11 @@ parser_compute_indicies (parser_context_t *context_p, /**< context */
   {
     uint16_t init_index;
 
+    if (literal_p->status_flags & LEXER_FLAG_UNUSED_IDENT)
+    {
+      continue;
+    }
+
     if (literal_p->type != LEXER_IDENT_LITERAL)
     {
       if (literal_p->type == LEXER_STRING_LITERAL
@@ -290,7 +396,7 @@ parser_compute_indicies (parser_context_t *context_p, /**< context */
     {
       if (!(literal_p->status_flags & LEXER_FLAG_NO_REG_STORE))
       {
-        JERRY_ASSERT (register_count < PARSER_MAXIMUM_NUMBER_OF_REGISTERS);
+        JERRY_ASSERT (register_count <= PARSER_MAXIMUM_NUMBER_OF_REGISTERS);
         /* This var literal can be stored in a register. */
         literal_p->prop.index = register_index;
         register_index++;
@@ -323,7 +429,7 @@ parser_compute_indicies (parser_context_t *context_p, /**< context */
     {
       if (!(literal_p->status_flags & LEXER_FLAG_NO_REG_STORE))
       {
-        JERRY_ASSERT (register_count < PARSER_MAXIMUM_NUMBER_OF_REGISTERS);
+        JERRY_ASSERT (register_count <= PARSER_MAXIMUM_NUMBER_OF_REGISTERS);
         /* This var literal can be stored in a register. */
         literal_p->prop.index = register_index;
         register_index++;
@@ -348,7 +454,8 @@ parser_compute_indicies (parser_context_t *context_p, /**< context */
     }
 
     /* A CBC_INITIALIZE_VAR instruction or part of a CBC_INITIALIZE_VARS instruction. */
-    if (!(status_flags & PARSER_HAS_INITIALIZED_VARS))
+    if (!(status_flags & PARSER_HAS_INITIALIZED_VARS)
+        || !(literal_p->status_flags & LEXER_FLAG_NO_REG_STORE))
     {
       length += 2;
       if (literal_p->prop.index > literal_one_byte_limit)
@@ -437,7 +544,6 @@ parser_generate_initializers (parser_context_t *context_p, /**< context */
     dst_p = parser_encode_literal (dst_p,
                                    (uint16_t) (uninitialized_var_end - 1),
                                    literal_one_byte_limit);
-    context_p->status_flags |= PARSER_LEXICAL_ENV_NEEDED;
   }
 
   if (context_p->status_flags & PARSER_HAS_INITIALIZED_VARS)
@@ -516,9 +622,12 @@ parser_generate_initializers (parser_context_t *context_p, /**< context */
           || literal_p->type == LEXER_STRING_LITERAL)
       {
 #ifdef PARSER_DUMP_BYTE_CODE
-        jmem_cpointer_t lit_cp = ecma_find_or_create_literal_string (literal_p->u.char_p,
-                                                                     literal_p->prop.length);
-        literal_pool_p[literal_p->prop.index] = lit_cp;
+        if (!(literal_p->status_flags & LEXER_FLAG_UNUSED_IDENT))
+        {
+          jmem_cpointer_t lit_cp = ecma_find_or_create_literal_string (literal_p->u.char_p,
+                                                                       literal_p->prop.length);
+          literal_pool_p[literal_p->prop.index] = lit_cp;
+        }
 
         if (!context_p->is_show_opcodes
             && !(literal_p->status_flags & LEXER_FLAG_SOURCE_PTR))
@@ -526,7 +635,10 @@ parser_generate_initializers (parser_context_t *context_p, /**< context */
           jmem_heap_free_block ((void *) literal_p->u.char_p, literal_p->prop.length);
         }
 #else /* !PARSER_DUMP_BYTE_CODE */
-        literal_pool_p[literal_p->prop.index] = literal_p->u.value;
+        if (!(literal_p->status_flags & LEXER_FLAG_UNUSED_IDENT))
+        {
+          literal_pool_p[literal_p->prop.index] = literal_p->u.value;
+        }
 #endif /* PARSER_DUMP_BYTE_CODE */
       }
       else if ((literal_p->type == LEXER_FUNCTION_LITERAL)
@@ -553,8 +665,6 @@ parser_generate_initializers (parser_context_t *context_p, /**< context */
       uint16_t init_index;
 
       JERRY_ASSERT (literal_p->type == LEXER_IDENT_LITERAL);
-
-      context_p->status_flags |= PARSER_LEXICAL_ENV_NEEDED;
 
       if (literal_p->status_flags & LEXER_FLAG_FUNCTION_NAME)
       {
@@ -868,7 +978,6 @@ parse_print_literal (ecma_compiled_code_t *compiled_code_p, /**< compiled code *
 
     if (literal_p == NULL)
     {
-
       if (literal_index == const_literal_end)
       {
         JERRY_DEBUG_MSG (" idx:%d(self)->function", literal_index);
@@ -881,7 +990,8 @@ parse_print_literal (ecma_compiled_code_t *compiled_code_p, /**< compiled code *
     }
 
     if (literal_p->prop.index == literal_index
-        && literal_p->type != LEXER_UNUSED_LITERAL)
+        && literal_p->type != LEXER_UNUSED_LITERAL
+        && !(literal_p->status_flags & LEXER_FLAG_UNUSED_IDENT))
     {
       JERRY_DEBUG_MSG (" idx:%d", literal_index);
 
@@ -1250,8 +1360,8 @@ parser_post_processing (parser_context_t *context_p) /**< context */
   uint16_t initialized_var_end;
   uint16_t const_literal_end;
   parser_mem_page_t *page_p;
-  parser_mem_page_t *last_page_p = context_p->byte_code.last_p;
-  size_t last_position = context_p->byte_code.last_position;
+  parser_mem_page_t *last_page_p;
+  size_t last_position;
   size_t offset;
   size_t length;
   size_t total_size;
@@ -1271,6 +1381,29 @@ parser_post_processing (parser_context_t *context_p) /**< context */
 
   JERRY_ASSERT (context_p->literal_count <= PARSER_MAXIMUM_NUMBER_OF_LITERALS);
 
+#ifdef JERRY_DEBUGGER
+  if ((JERRY_CONTEXT (debugger_flags) & JERRY_DEBUGGER_CONNECTED)
+      && !(context_p->status_flags & PARSER_DEBUGGER_BREAKPOINT_APPENDED))
+  {
+    /* Always provide at least one breakpoint. */
+    parser_emit_cbc (context_p, CBC_BREAKPOINT_DISABLED);
+    parser_flush_cbc (context_p);
+
+    parser_append_breakpoint_info (context_p, JERRY_DEBUGGER_BREAKPOINT_LIST, context_p->token.line);
+
+    context_p->last_breakpoint_line = context_p->token.line;
+  }
+
+  if ((JERRY_CONTEXT (debugger_flags) & JERRY_DEBUGGER_CONNECTED)
+      && context_p->breakpoint_info_count > 0)
+  {
+    parser_send_breakpoints (context_p, JERRY_DEBUGGER_BREAKPOINT_LIST);
+    JERRY_ASSERT (context_p->breakpoint_info_count == 0);
+  }
+#endif /* JERRY_DEBUGGER */
+
+  parser_copy_identifiers (context_p);
+
   initializers_length = parser_compute_indicies (context_p,
                                                  &ident_end,
                                                  &uninitialized_var_end,
@@ -1286,6 +1419,9 @@ parser_post_processing (parser_context_t *context_p) /**< context */
   {
     literal_one_byte_limit = CBC_LOWER_SEVEN_BIT_MASK;
   }
+
+  last_page_p = context_p->byte_code.last_p;
+  last_position = context_p->byte_code.last_position;
 
   if (last_position >= PARSER_CBC_STREAM_PAGE_SIZE)
   {
@@ -1464,6 +1600,10 @@ parser_post_processing (parser_context_t *context_p) /**< context */
 
   compiled_code_p = (ecma_compiled_code_t *) parser_malloc (context_p, total_size);
 
+#ifdef JMEM_STATS
+  jmem_stats_allocate_byte_code_bytes (total_size);
+#endif /* JMEM_STATS */
+
   byte_code_p = (uint8_t *) compiled_code_p;
   compiled_code_p->size = (uint16_t) (total_size >> JMEM_ALIGNMENT_LOG);
   compiled_code_p->refs = 1;
@@ -1553,16 +1693,16 @@ parser_post_processing (parser_context_t *context_p) /**< context */
     {
       /* These opcodes are deleted from the stream. */
 #if PARSER_MAXIMUM_CODE_SIZE <= 65535
-      size_t length = 3;
+      size_t counter = 3;
 #else /* PARSER_MAXIMUM_CODE_SIZE > 65535 */
-      size_t length = 4;
+      size_t counter = 4;
 #endif /* PARSER_MAXIMUM_CODE_SIZE <= 65535 */
 
       do
       {
         PARSER_NEXT_BYTE_UPDATE (page_p, offset, real_offset);
       }
-      while (--length > 0);
+      while (--counter > 0);
 
       continue;
     }
@@ -1572,6 +1712,14 @@ parser_post_processing (parser_context_t *context_p) /**< context */
     real_offset++;
     PARSER_NEXT_BYTE_UPDATE (page_p, offset, real_offset);
     flags = cbc_flags[opcode];
+
+#ifdef JERRY_DEBUGGER
+    if (opcode == CBC_BREAKPOINT_DISABLED)
+    {
+      uint32_t bp_offset = (uint32_t) (((uint8_t *) dst_p) - ((uint8_t *) compiled_code_p) - 1);
+      parser_append_breakpoint_info (context_p, JERRY_DEBUGGER_BREAKPOINT_OFFSET_LIST, bp_offset);
+    }
+#endif /* JERRY_DEBUGGER */
 
     if (opcode == CBC_EXT_OPCODE)
     {
@@ -1667,6 +1815,15 @@ parser_post_processing (parser_context_t *context_p) /**< context */
       PARSER_NEXT_BYTE_UPDATE (page_p, offset, real_offset);
     }
   }
+
+#ifdef JERRY_DEBUGGER
+  if ((JERRY_CONTEXT (debugger_flags) & JERRY_DEBUGGER_CONNECTED)
+      && context_p->breakpoint_info_count > 0)
+  {
+    parser_send_breakpoints (context_p, JERRY_DEBUGGER_BREAKPOINT_OFFSET_LIST);
+    JERRY_ASSERT (context_p->breakpoint_info_count == 0);
+  }
+#endif /* JERRY_DEBUGGER */
 
   if (!(context_p->status_flags & PARSER_NO_END_LABEL))
   {
@@ -1770,6 +1927,13 @@ parser_post_processing (parser_context_t *context_p) /**< context */
                                compiled_code_p);
   }
 
+#ifdef JERRY_DEBUGGER
+  if (JERRY_CONTEXT (debugger_flags) & JERRY_DEBUGGER_CONNECTED)
+  {
+    jerry_debugger_send_function_cp (JERRY_DEBUGGER_BYTE_CODE_CP, compiled_code_p);
+  }
+#endif /* JERRY_DEBUGGER */
+
   return compiled_code_p;
 } /* parser_post_processing */
 
@@ -1852,7 +2016,7 @@ parser_parse_source (const uint8_t *source_p, /**< valid UTF-8 source code */
 #endif /* !JERRY_NDEBUG */
 
 #ifdef PARSER_DUMP_BYTE_CODE
-  context.is_show_opcodes = (JERRY_CONTEXT (jerry_init_flags) & JERRY_INIT_SHOW_OPCODES);
+  context.is_show_opcodes = (JERRY_CONTEXT (jerry_init_flags) & ECMA_INIT_SHOW_OPCODES);
   context.total_byte_code_size = 0;
 
   if (context.is_show_opcodes)
@@ -1860,6 +2024,10 @@ parser_parse_source (const uint8_t *source_p, /**< valid UTF-8 source code */
     JERRY_DEBUG_MSG ("\n--- Script parsing start ---\n\n");
   }
 #endif /* PARSER_DUMP_BYTE_CODE */
+
+#ifdef JERRY_DEBUGGER
+  context.breakpoint_info_count = 0;
+#endif /* JERRY_DEBUGGER */
 
   PARSER_TRY (context.try_buffer)
   {
@@ -1948,6 +2116,15 @@ parser_parse_function (parser_context_t *context_p, /**< context */
 
   JERRY_ASSERT (context_p->last_cbc_opcode == PARSER_CBC_UNAVAILABLE);
 
+#ifdef JERRY_DEBUGGER
+  if (JERRY_CONTEXT (debugger_flags) & JERRY_DEBUGGER_CONNECTED
+      && context_p->breakpoint_info_count > 0)
+  {
+    parser_send_breakpoints (context_p, JERRY_DEBUGGER_BREAKPOINT_LIST);
+    context_p->breakpoint_info_count = 0;
+  }
+#endif /* JERRY_DEBUGGER */
+
   /* Save private part of the context. */
 
   saved_context.status_flags = context_p->status_flags;
@@ -1998,6 +2175,11 @@ parser_parse_function (parser_context_t *context_p, /**< context */
   }
 #endif /* PARSER_DUMP_BYTE_CODE */
 
+#ifdef JERRY_DEBUGGER
+  parser_line_counter_t debugger_line = context_p->token.line;
+  parser_line_counter_t debugger_column = context_p->token.column;
+#endif /* JERRY_DEBUGGER */
+
   lexer_next_token (context_p);
 
   if (context_p->status_flags & PARSER_IS_FUNC_EXPRESSION
@@ -2008,12 +2190,21 @@ parser_parse_function (parser_context_t *context_p, /**< context */
                                     &context_p->token.lit_location,
                                     LEXER_IDENT_LITERAL);
 
+#ifdef JERRY_DEBUGGER
+    if (JERRY_CONTEXT (debugger_flags) & JERRY_DEBUGGER_CONNECTED)
+    {
+      jerry_debugger_send_string (JERRY_DEBUGGER_FUNCTION_NAME,
+                                  context_p->lit_object.literal_p->u.char_p,
+                                  context_p->lit_object.literal_p->prop.length);
+    }
+#endif /* JERRY_DEBUGGER */
+
     /* The arguments object is created later than the binding to the
      * function expression name, so there is no need to assign special flags. */
     if (context_p->lit_object.type != LEXER_LITERAL_OBJECT_ARGUMENTS)
     {
-      uint8_t status_flags = LEXER_FLAG_VAR | LEXER_FLAG_INITIALIZED | LEXER_FLAG_FUNCTION_NAME;
-      context_p->lit_object.literal_p->status_flags |= status_flags;
+      uint8_t lexer_flags = LEXER_FLAG_VAR | LEXER_FLAG_INITIALIZED | LEXER_FLAG_FUNCTION_NAME;
+      context_p->lit_object.literal_p->status_flags |= lexer_flags;
     }
 
     if (context_p->token.literal_is_reserved
@@ -2024,6 +2215,16 @@ parser_parse_function (parser_context_t *context_p, /**< context */
 
     lexer_next_token (context_p);
   }
+
+#ifdef JERRY_DEBUGGER
+  if ((JERRY_CONTEXT (debugger_flags) & JERRY_DEBUGGER_CONNECTED)
+      && jerry_debugger_send_parse_function (debugger_line, debugger_column))
+  {
+    /* This option has a high memory and performance costs,
+     * but it is necessary for executing eval operations by the debugger. */
+    context_p->status_flags |= PARSER_LEXICAL_ENV_NEEDED | PARSER_NO_REG_STORE;
+  }
+#endif /* JERRY_DEBUGGER */
 
   if (context_p->token.type != LEXER_LEFT_PAREN)
   {
@@ -2095,8 +2296,8 @@ parser_parse_function (parser_context_t *context_p, /**< context */
       }
       else
       {
-        uint8_t status_flags = LEXER_FLAG_VAR | LEXER_FLAG_INITIALIZED | LEXER_FLAG_FUNCTION_ARGUMENT;
-        context_p->lit_object.literal_p->status_flags |= status_flags;
+        uint8_t lexer_flags = LEXER_FLAG_VAR | LEXER_FLAG_INITIALIZED | LEXER_FLAG_FUNCTION_ARGUMENT;
+        context_p->lit_object.literal_p->status_flags |= lexer_flags;
       }
 
       context_p->argument_count++;
@@ -2223,12 +2424,47 @@ parser_raise_error (parser_context_t *context_p, /**< context */
   JERRY_ASSERT (0);
 } /* parser_raise_error */
 
-#define PARSE_ERR_POS_START       " [line: "
-#define PARSE_ERR_POS_START_SIZE  ((uint32_t) sizeof (PARSE_ERR_POS_START) - 1)
-#define PARSE_ERR_POS_MIDDLE      ", column: "
-#define PARSE_ERR_POS_MIDDLE_SIZE ((uint32_t) sizeof (PARSE_ERR_POS_MIDDLE) - 1)
-#define PARSE_ERR_POS_END         "]"
-#define PARSE_ERR_POS_END_SIZE    ((uint32_t) sizeof (PARSE_ERR_POS_END))
+#ifdef JERRY_DEBUGGER
+
+/**
+ * Append a breakpoint info.
+ */
+void
+parser_append_breakpoint_info (parser_context_t *context_p, /**< context */
+                               jerry_debugger_header_type_t type, /**< message type */
+                               uint32_t value) /**< line or offset of the breakpoint */
+{
+  JERRY_ASSERT (JERRY_CONTEXT (debugger_flags) & JERRY_DEBUGGER_CONNECTED);
+
+  context_p->status_flags |= PARSER_DEBUGGER_BREAKPOINT_APPENDED;
+
+  if (context_p->breakpoint_info_count >= JERRY_DEBUGGER_SEND_MAX (parser_list_t))
+  {
+    parser_send_breakpoints (context_p, type);
+  }
+
+  context_p->breakpoint_info[context_p->breakpoint_info_count].value = value;
+  context_p->breakpoint_info_count = (uint16_t) (context_p->breakpoint_info_count + 1);
+} /* parser_append_breakpoint_info */
+
+/**
+ * Send current breakpoint list.
+ */
+void
+parser_send_breakpoints (parser_context_t *context_p, /**< context */
+                         jerry_debugger_header_type_t type) /**< message type */
+{
+  JERRY_ASSERT (JERRY_CONTEXT (debugger_flags) & JERRY_DEBUGGER_CONNECTED);
+  JERRY_ASSERT (context_p->breakpoint_info_count > 0);
+
+  jerry_debugger_send_data (type,
+                            context_p->breakpoint_info,
+                            context_p->breakpoint_info_count * sizeof (parser_breakpoint_info_t));
+
+  context_p->breakpoint_info_count = 0;
+} /* parser_send_breakpoints */
+
+#endif /* JERRY_DEBUGGER */
 
 #endif /* JERRY_JS_PARSER */
 
@@ -2247,63 +2483,51 @@ parser_parse_script (const uint8_t *source_p, /**< source code */
                      bool is_strict, /**< strict mode */
                      ecma_compiled_code_t **bytecode_data_p) /**< [out] JS bytecode */
 {
-#ifdef JERRY_JS_PARSER
+#if JERRY_JS_PARSER
   parser_error_location_t parser_error;
+
+#ifdef JERRY_DEBUGGER
+  if (JERRY_CONTEXT (debugger_flags) & JERRY_DEBUGGER_CONNECTED)
+  {
+    jerry_debugger_send_string (JERRY_DEBUGGER_SOURCE_CODE, source_p, size);
+  }
+#endif /* JERRY_DEBUGGER */
+
   *bytecode_data_p = parser_parse_source (source_p, size, is_strict, &parser_error);
 
   if (!*bytecode_data_p)
   {
+#ifdef JERRY_DEBUGGER
+    if (JERRY_CONTEXT (debugger_flags) & JERRY_DEBUGGER_CONNECTED)
+    {
+      jerry_debugger_send_type (JERRY_DEBUGGER_PARSE_ERROR);
+    }
+#endif /* JERRY_DEBUGGER */
+
     if (parser_error.error == PARSER_ERR_OUT_OF_MEMORY)
     {
       /* It is unlikely that memory can be allocated in an out-of-memory
        * situation. However, a simple value can still be thrown. */
       return ecma_make_error_value (ecma_make_simple_value (ECMA_SIMPLE_VALUE_NULL));
     }
-#if JERRY_ENABLE_ERROR_MESSAGES
-    const char *err_str_p = parser_error_to_string (parser_error.error);
-    uint32_t err_str_size = lit_zt_utf8_string_size ((const lit_utf8_byte_t *) err_str_p);
+#ifdef JERRY_ENABLE_ERROR_MESSAGES
+    const lit_utf8_byte_t *err_bytes_p = (const lit_utf8_byte_t *) parser_error_to_string (parser_error.error);
+    lit_utf8_size_t err_bytes_size = lit_zt_utf8_string_size (err_bytes_p);
 
-    char line_str_p[ECMA_MAX_CHARS_IN_STRINGIFIED_UINT32];
-    uint32_t line_len = ecma_uint32_to_utf8_string (parser_error.line,
-                                                    (lit_utf8_byte_t *) line_str_p,
-                                                    ECMA_MAX_CHARS_IN_STRINGIFIED_UINT32);
+    ecma_string_t *err_str_p = ecma_new_ecma_string_from_utf8 (err_bytes_p, err_bytes_size);
+    ecma_value_t err_str_val = ecma_make_string_value (err_str_p);
+    ecma_value_t line_str_val = ecma_make_uint32_value (parser_error.line);
+    ecma_value_t col_str_val = ecma_make_uint32_value (parser_error.column);
 
-    char col_str_p[ECMA_MAX_CHARS_IN_STRINGIFIED_UINT32];
-    uint32_t col_len = ecma_uint32_to_utf8_string (parser_error.column,
-                                                   (lit_utf8_byte_t *) col_str_p,
-                                                   ECMA_MAX_CHARS_IN_STRINGIFIED_UINT32);
+    ecma_value_t error_value = ecma_raise_standard_error_with_format (ECMA_ERROR_SYNTAX,
+                                                                      "% [line: %, column: %]",
+                                                                      err_str_val,
+                                                                      line_str_val,
+                                                                      col_str_val);
 
-    uint32_t msg_size = (err_str_size
-                         + line_len
-                         + col_len
-                         + PARSE_ERR_POS_START_SIZE
-                         + PARSE_ERR_POS_MIDDLE_SIZE
-                         + PARSE_ERR_POS_END_SIZE);
-
-    ecma_value_t error_value = ecma_make_simple_value (ECMA_SIMPLE_VALUE_EMPTY);
-
-    JMEM_DEFINE_LOCAL_ARRAY (error_msg_p, msg_size, char);
-    char *err_msg_pos_p = error_msg_p;
-
-    strncpy (err_msg_pos_p, err_str_p, err_str_size);
-    err_msg_pos_p += err_str_size;
-
-    strncpy (err_msg_pos_p, PARSE_ERR_POS_START, PARSE_ERR_POS_START_SIZE);
-    err_msg_pos_p += PARSE_ERR_POS_START_SIZE;
-
-    strncpy (err_msg_pos_p, line_str_p, line_len);
-    err_msg_pos_p += line_len;
-
-    strncpy (err_msg_pos_p, PARSE_ERR_POS_MIDDLE, PARSE_ERR_POS_MIDDLE_SIZE);
-    err_msg_pos_p += PARSE_ERR_POS_MIDDLE_SIZE;
-
-    strncpy (err_msg_pos_p, col_str_p, col_len);
-    err_msg_pos_p += col_len;
-
-    strncpy (err_msg_pos_p, PARSE_ERR_POS_END, PARSE_ERR_POS_END_SIZE);
-
-    error_value = ecma_raise_syntax_error (error_msg_p);
-    JMEM_FINALIZE_LOCAL_ARRAY (error_msg_p);
+    ecma_free_value (col_str_val);
+    ecma_free_value (line_str_val);
+    ecma_free_value (err_str_val);
 
     return error_value;
 #else /* !JERRY_ENABLE_ERROR_MESSAGES */

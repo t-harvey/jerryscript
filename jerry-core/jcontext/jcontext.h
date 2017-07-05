@@ -19,11 +19,14 @@
 #ifndef JCONTEXT_H
 #define JCONTEXT_H
 
+#include "debugger.h"
 #include "ecma-builtins.h"
-#include "jmem-allocator.h"
-#include "jmem-config.h"
+#include "ecma-jobqueue.h"
+#include "jerryscript-port.h"
+#include "jmem.h"
 #include "re-bytecode.h"
 #include "vm-defines.h"
+#include "jerryscript.h"
 
 /** \addtogroup context Context
  * @{
@@ -33,6 +36,18 @@
  * First member of the jerry context
  */
 #define JERRY_CONTEXT_FIRST_MEMBER ecma_builtin_objects
+
+/**
+ * User context item
+ */
+typedef struct jerry_context_data_header
+{
+  struct jerry_context_data_header *next_p; /**< pointer to next context item */
+  const jerry_context_data_manager_t *manager_p; /**< manager responsible for deleting this item */
+} jerry_context_data_header_t;
+
+#define JERRY_CONTEXT_DATA_HEADER_USER_DATA(item_p) \
+  ((uint8_t *) (item_p + 1))
 
 /**
  * JerryScript context
@@ -61,6 +76,7 @@ typedef struct
   ecma_lit_storage_item_t *number_list_first_p; /**< first item of the literal number list */
   ecma_object_t *ecma_global_lex_env_p; /**< global lexical environment */
   vm_frame_ctx_t *vm_top_context_p; /**< top (current) interpreter context */
+  jerry_context_data_header_t *context_data_p; /**< linked list of user-provided context-specific pointers */
   size_t ecma_gc_objects_number; /**< number of currently allocated objects */
   size_t ecma_gc_new_objects; /**< number of newly allocated objects since last GC session */
   size_t jmem_heap_allocated_size; /**< size of allocated regions */
@@ -82,9 +98,33 @@ typedef struct
   uint8_t re_cache_idx; /**< evicted item index when regex cache is full (round-robin) */
 #endif /* !CONFIG_DISABLE_REGEXP_BUILTIN */
 
+#ifndef CONFIG_DISABLE_ES2015_PROMISE_BUILTIN
+  ecma_job_queueitem_t *job_queue_head_p; /**< points to the head item of the jobqueue */
+  ecma_job_queueitem_t *job_queue_tail_p; /**< points to the tail item of the jobqueue*/
+#endif /* CONFIG_DISABLE_ES2015_PROMISE_BUILTIN */
+
+#ifdef JERRY_VM_EXEC_STOP
+  uint32_t vm_exec_stop_frequency; /**< reset value for vm_exec_stop_counter */
+  uint32_t vm_exec_stop_counter; /**< down counter for reducing the calls of vm_exec_stop_cb */
+  void *vm_exec_stop_user_p; /**< user pointer for vm_exec_stop_cb */
+  ecma_vm_exec_stop_callback_t vm_exec_stop_cb; /**< user function which returns whether the
+                                                 *   ECMAScript execution should be stopped */
+#endif /* JERRY_VM_EXEC_STOP */
+
+#ifdef JERRY_DEBUGGER
+  uint8_t debugger_send_buffer[JERRY_DEBUGGER_MAX_BUFFER_SIZE]; /**< buffer for sending messages */
+  uint8_t debugger_receive_buffer[JERRY_DEBUGGER_MAX_BUFFER_SIZE]; /**< buffer for receiving messages */
+  vm_frame_ctx_t *debugger_stop_context; /**< stop only if the current context is equal to this context */
+  jmem_cpointer_t debugger_byte_code_free_head; /**< head of byte code free linked list */
+  jmem_cpointer_t debugger_byte_code_free_tail; /**< tail of byte code free linked list */
+  uint8_t debugger_flags; /**< debugger flags */
+  uint8_t debugger_message_delay; /**< call receive message when reaches zero */
+  uint16_t debugger_receive_buffer_offset; /**< receive buffer offset */
+  int debugger_connection; /**< holds the file descriptor of the socket communication */
+#endif /* JERRY_DEBUGGER */
+
 #ifdef JMEM_STATS
   jmem_heap_stats_t jmem_heap_stats; /**< heap's memory usage statistics */
-  jmem_pools_stats_t jmem_pools_stats; /**< pools' memory usage statistics */
 #endif /* JMEM_STATS */
 
 #ifdef JERRY_VALGRIND_FREYA
@@ -92,6 +132,91 @@ typedef struct
                                            *   allocator request is in progress */
 #endif /* JERRY_VALGRIND_FREYA */
 } jerry_context_t;
+
+#ifndef CONFIG_ECMA_LCACHE_DISABLE
+/**
+ * Hash table for caching the last access of properties.
+ */
+typedef struct
+{
+  ecma_lcache_hash_entry_t table[ECMA_LCACHE_HASH_ROWS_COUNT][ECMA_LCACHE_HASH_ROW_LENGTH];
+} jerry_hash_table_t;
+#endif /* !CONFIG_ECMA_LCACHE_DISABLE */
+
+#ifdef JERRY_ENABLE_EXTERNAL_CONTEXT
+
+#ifndef JERRY_GET_CURRENT_INSTANCE
+
+/**
+ * Default function if JERRY_GET_CURRENT_INSTANCE is not defined.
+ */
+#define JERRY_GET_CURRENT_INSTANCE() (jerry_port_get_current_instance ())
+
+#endif /* !JERRY_GET_CURRENT_INSTANCE */
+
+/**
+ * This part is for Jerry which enable external context.
+ */
+typedef struct
+{
+  jmem_heap_free_t first; /**< first node in free region list */
+  uint8_t area[]; /**< heap area */
+} jmem_heap_t;
+
+/**
+ * Description of jerry instance which is the header of the context space.
+ */
+struct jerry_instance_t
+{
+  jerry_context_t context; /**< the context of the instance */
+#ifndef JERRY_SYSTEM_ALLOCATOR
+  jmem_heap_t *heap_p; /**< point to the heap aligned to JMEM_ALIGNMENT. */
+  uint32_t heap_size; /**< size of the heap */
+#endif
+#ifndef CONFIG_ECMA_LCACHE_DISABLE
+  uint8_t *lcache_p; /**< point to the entrance of the lcache in buffer */
+#endif /* !CONFIG_ECMA_LCACHE_DISABLE */
+};
+
+#define JERRY_CONTEXT(field) (JERRY_GET_CURRENT_INSTANCE ()->context.field)
+
+#ifndef JERRY_SYSTEM_ALLOCATOR
+
+static inline jmem_heap_t * __attr_always_inline___
+jerry_context_get_current_heap (void)
+{
+  return JERRY_GET_CURRENT_INSTANCE ()->heap_p;
+} /* jerry_context_get_current_heap */
+
+#define JERRY_HEAP_CONTEXT(field) (jerry_context_get_current_heap ()->field)
+
+#ifdef JMEM_HEAP_SIZE
+#error "JMEM_HEAP_SIZE must not be defined if JERRY_ENABLE_EXTERNAL_CONTEXT is defined"
+#endif /* JMEM_HEAP_SIZE */
+
+#define JMEM_HEAP_SIZE (JERRY_GET_CURRENT_INSTANCE ()->heap_size)
+
+#define JMEM_HEAP_AREA_SIZE (JERRY_GET_CURRENT_INSTANCE ()->heap_size - JMEM_ALIGNMENT)
+
+#endif /* !JERRY_SYSTEM_ALLOCATOR */
+
+#ifndef CONFIG_ECMA_LCACHE_DISABLE
+
+static inline jerry_hash_table_t * __attr_always_inline___
+jerry_context_get_current_lcache (void)
+{
+  return (jerry_hash_table_t *) (JERRY_GET_CURRENT_INSTANCE ()->lcache_p);
+} /* jerry_context_get_current_lcache */
+
+#define JERRY_HASH_TABLE_CONTEXT(field) (jerry_context_get_current_lcache ()->field)
+
+#endif /* !CONFIG_ECMA_LCACHE_DISABLE */
+
+#else /* !JERRY_ENABLE_EXTERNAL_CONTEXT */
+
+/**
+ * This part is for Jerry which use default context.
+ */
 
 /**
  * Calculate heap area size, leaving space for a pointer to the free list
@@ -116,30 +241,17 @@ typedef struct
   uint8_t area[JMEM_HEAP_AREA_SIZE]; /**< heap area */
 } jmem_heap_t;
 
-#ifndef CONFIG_ECMA_LCACHE_DISABLE
-
-/**
- * JerryScript global hash table for caching the last access of properties.
- */
-typedef struct
-{
-  /**
-   * Hash table
-   */
-  ecma_lcache_hash_entry_t table[ECMA_LCACHE_HASH_ROWS_COUNT][ECMA_LCACHE_HASH_ROW_LENGTH];
-} jerry_hash_table_t;
-
-#endif /* !CONFIG_ECMA_LCACHE_DISABLE */
-
 /**
  * Global context.
  */
 extern jerry_context_t jerry_global_context;
 
+#ifndef JERRY_SYSTEM_ALLOCATOR
 /**
  * Global heap.
  */
 extern jmem_heap_t jerry_global_heap;
+#endif /* !JERRY_SYSTEM_ALLOCATOR */
 
 #ifndef CONFIG_ECMA_LCACHE_DISABLE
 
@@ -155,10 +267,13 @@ extern jerry_hash_table_t jerry_global_hash_table;
  */
 #define JERRY_CONTEXT(field) (jerry_global_context.field)
 
+#ifndef JERRY_SYSTEM_ALLOCATOR
 /**
  * Provides a reference to the area field of the heap.
  */
 #define JERRY_HEAP_CONTEXT(field) (jerry_global_heap.field)
+
+#endif /* !JERRY_SYSTEM_ALLOCATOR */
 
 #ifndef CONFIG_ECMA_LCACHE_DISABLE
 
@@ -168,6 +283,8 @@ extern jerry_hash_table_t jerry_global_hash_table;
 #define JERRY_HASH_TABLE_CONTEXT(field) (jerry_global_hash_table.field)
 
 #endif /* !CONFIG_ECMA_LCACHE_DISABLE */
+
+#endif /* JERRY_ENABLE_EXTERNAL_CONTEXT */
 
 /**
  * @}

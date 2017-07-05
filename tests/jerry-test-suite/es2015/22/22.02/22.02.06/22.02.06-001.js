@@ -14,3 +14,11 @@
  */
 
 assert(Int8Array.prototype.BYTES_PER_ELEMENT === 1);
+assert(Uint8Array.prototype.BYTES_PER_ELEMENT === 1);
+assert(Uint8ClampedArray.prototype.BYTES_PER_ELEMENT === 1);
+assert(Int16Array.prototype.BYTES_PER_ELEMENT === 2);
+assert(Uint16Array.prototype.BYTES_PER_ELEMENT === 2);
+assert(Int32Array.prototype.BYTES_PER_ELEMENT === 4);
+assert(Uint32Array.prototype.BYTES_PER_ELEMENT === 4);
+assert(Float32Array.prototype.BYTES_PER_ELEMENT === 4);
+assert(Float64Array.prototype.BYTES_PER_ELEMENT === 8);

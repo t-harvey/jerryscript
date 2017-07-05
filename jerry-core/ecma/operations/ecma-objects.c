@@ -27,9 +27,9 @@
 #include "ecma-objects-general.h"
 #include "ecma-objects.h"
 
-#ifndef CONFIG_DISABLE_TYPEDARRAY_BUILTIN
+#ifndef CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN
 #include "ecma-typedarray-object.h"
-#endif /* !CONFIG_DISABLE_TYPEDARRAY_BUILTIN */
+#endif /* !CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN */
 
 /** \addtogroup ecma ECMA
  * @{
@@ -142,7 +142,7 @@ ecma_op_object_get_own_property (ecma_object_t *object_p, /**< the object */
       }
       break;
     }
-#ifndef CONFIG_DISABLE_TYPEDARRAY_BUILTIN
+#ifndef CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN
     case ECMA_OBJECT_TYPE_PSEUDO_ARRAY:
     {
       /* ES2015 9.4.5.1 */
@@ -151,9 +151,17 @@ ecma_op_object_get_own_property (ecma_object_t *object_p, /**< the object */
         if (ECMA_STRING_GET_CONTAINER (property_name_p) == ECMA_STRING_CONTAINER_UINT32_IN_DESC)
         {
           ecma_value_t value = ecma_op_typedarray_get_index_prop (object_p, property_name_p->u.uint32_number);
+
           if (!ecma_is_value_undefined (value))
           {
-            property_ref_p->virtual_value = value;
+            if (options & ECMA_PROPERTY_GET_VALUE)
+            {
+              property_ref_p->virtual_value = value;
+            }
+            else
+            {
+              ecma_fast_free_value (value);
+            }
 
             return ECMA_PROPERTY_ENUMERABLE_WRITABLE | ECMA_PROPERTY_TYPE_VIRTUAL;
           }
@@ -176,7 +184,7 @@ ecma_op_object_get_own_property (ecma_object_t *object_p, /**< the object */
 
       break;
     }
-#endif /* !CONFIG_DISABLE_TYPEDARRAY_BUILTIN */
+#endif /* !CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN */
     default:
     {
       break;
@@ -327,8 +335,8 @@ ecma_op_object_get_property (ecma_object_t *object_p, /**< the object */
 /**
  * Checks whether an object (excluding prototypes) has a named property
  *
- * @return true if property is found
- *         false otherwise
+ * @return true - if property is found
+ *         false - otherwise
  */
 inline bool __attr_always_inline___
 ecma_op_object_has_own_property (ecma_object_t *object_p, /**< the object */
@@ -345,8 +353,8 @@ ecma_op_object_has_own_property (ecma_object_t *object_p, /**< the object */
 /**
  * Checks whether an object (including prototypes) has a named property
  *
- * @return true if property is found
- *         false otherwise
+ * @return true - if property is found
+ *         false - otherwise
  */
 inline bool __attr_always_inline___
 ecma_op_object_has_property (ecma_object_t *object_p, /**< the object */
@@ -455,7 +463,7 @@ ecma_op_object_find_own (ecma_value_t base_value, /**< base value */
           }
         }
       }
-#ifndef CONFIG_DISABLE_TYPEDARRAY_BUILTIN
+#ifndef CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN
       /* ES2015 9.4.5.4 */
       if (ecma_is_typedarray (ecma_make_object_value (object_p)))
       {
@@ -476,7 +484,7 @@ ecma_op_object_find_own (ecma_value_t base_value, /**< base value */
 
         ecma_deref_ecma_string (num_to_str);
       }
-#endif /* !CONFIG_DISABLE_TYPEDARRAY_BUILTIN */
+#endif /* !CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN */
 
       break;
     }
@@ -734,7 +742,7 @@ ecma_op_object_put (ecma_object_t *object_p, /**< the object */
           }
         }
       }
-#ifndef CONFIG_DISABLE_TYPEDARRAY_BUILTIN
+#ifndef CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN
       /* ES2015 9.4.5.5 */
       if (ecma_is_typedarray (ecma_make_object_value (object_p)))
       {
@@ -762,7 +770,7 @@ ecma_op_object_put (ecma_object_t *object_p, /**< the object */
 
         ecma_deref_ecma_string (num_to_str);
       }
-#endif /* !CONFIG_DISABLE_TYPEDARRAY_BUILTIN */
+#endif /* !CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN */
       break;
     }
     default:
@@ -840,7 +848,7 @@ ecma_op_object_put (ecma_object_t *object_p, /**< the object */
 
     if (proto_p != NULL)
     {
-      ecma_property_ref_t property_ref;
+      ecma_property_ref_t property_ref = { NULL };
 
       ecma_property_t inherited_property = ecma_op_object_get_property (proto_p,
                                                                         property_name_p,
@@ -864,9 +872,9 @@ ecma_op_object_put (ecma_object_t *object_p, /**< the object */
     if (create_new_property
         && ecma_get_object_extensible (object_p))
     {
-      const ecma_object_type_t type = ecma_get_object_type (object_p);
+      const ecma_object_type_t obj_type = ecma_get_object_type (object_p);
 
-      if (type == ECMA_OBJECT_TYPE_PSEUDO_ARRAY)
+      if (obj_type == ECMA_OBJECT_TYPE_PSEUDO_ARRAY)
       {
         ecma_extended_object_t *ext_object_p = (ecma_extended_object_t *) object_p;
 
@@ -884,7 +892,7 @@ ecma_op_object_put (ecma_object_t *object_p, /**< the object */
 
       uint32_t index = ecma_string_get_array_index (property_name_p);
 
-      if (type == ECMA_OBJECT_TYPE_ARRAY
+      if (obj_type == ECMA_OBJECT_TYPE_ARRAY
           && index != ECMA_STRING_NOT_ARRAY_INDEX)
       {
         ecma_extended_object_t *ext_object_p = (ecma_extended_object_t *) object_p;
@@ -941,8 +949,8 @@ ecma_op_object_put (ecma_object_t *object_p, /**< the object */
  * Note:
  *      returned value must be freed with ecma_free_value
  *
- * @return true, if deleted successfully
- *         false or type error otherwise (based in 'is_throw')
+ * @return true - if deleted successfully
+ *         false - or type error otherwise (based in 'is_throw')
  */
 ecma_value_t
 ecma_op_object_delete (ecma_object_t *obj_p, /**< the object */
@@ -1089,7 +1097,7 @@ ecma_op_object_define_own_property (ecma_object_t *obj_p, /**< the object */
                                                              property_desc_p,
                                                              is_throw);
       }
-#ifndef CONFIG_DISABLE_TYPEDARRAY_BUILTIN
+#ifndef CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN
       /* ES2015 9.4.5.3 */
       if (ecma_is_typedarray (ecma_make_object_value (obj_p)))
       {
@@ -1125,7 +1133,7 @@ ecma_op_object_define_own_property (ecma_object_t *obj_p, /**< the object */
                                                          property_desc_p,
                                                          is_throw);
 
-#endif /* !CONFIG_DISABLE_TYPEDARRAY_BUILTIN */
+#endif /* !CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN */
       break;
     }
     default:
@@ -1149,8 +1157,8 @@ ecma_op_object_define_own_property (ecma_object_t *obj_p, /**< the object */
  *                                      [Enumerable], [Configurable]
  *                                    }.
  *
- * @return true if property found
- *         false otherwise
+ * @return true - if property found
+ *         false - otherwise
  */
 bool
 ecma_op_object_get_own_property_descriptor (ecma_object_t *object_p, /**< the object */
@@ -1262,8 +1270,8 @@ ecma_op_object_has_instance (ecma_object_t *obj_p, /**< the object */
  * See also:
  *          ECMA-262 v5, 15.2.4.6; 3
  *
- * @return true if the target object is prototype of the base object
- *         false if the target object is not prototype of the base object
+ * @return true - if the target object is prototype of the base object
+ *         false - if the target object is not prototype of the base object
  */
 bool
 ecma_op_object_is_prototype_of (ecma_object_t *base_p, /**< base object */
@@ -1348,12 +1356,12 @@ ecma_op_object_get_property_names (ecma_object_t *obj_p, /**< object */
         }
         case ECMA_OBJECT_TYPE_PSEUDO_ARRAY:
         {
-#ifndef CONFIG_DISABLE_TYPEDARRAY_BUILTIN
+#ifndef CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN
           if (ecma_is_typedarray (ecma_make_object_value (obj_p)))
           {
             ecma_op_typedarray_list_lazy_property_names (obj_p, prop_names_p);
           }
-#endif /* !CONFIG_DISABLE_TYPEDARRAY_BUILTIN */
+#endif /* !CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN */
           break;
         }
         case ECMA_OBJECT_TYPE_FUNCTION:
@@ -1433,6 +1441,14 @@ ecma_op_object_get_property_names (ecma_object_t *obj_p, /**< object */
             || ECMA_PROPERTY_GET_TYPE (*property_p) == ECMA_PROPERTY_TYPE_NAMEDACCESSOR)
         {
           ecma_property_pair_t *prop_pair_p = (ecma_property_pair_t *) prop_iter_p;
+
+          if (ECMA_PROPERTY_GET_NAME_TYPE (*property_p) == ECMA_STRING_CONTAINER_MAGIC_STRING
+              && prop_pair_p->names_cp[i] >= LIT_NON_INTERNAL_MAGIC_STRING__COUNT)
+          {
+            /* Internal properties are never enumerated. */
+            continue;
+          }
+
           ecma_string_t *name_p = ecma_string_from_property_name (*property_p,
                                                                   prop_pair_p->names_cp[i]);
 
@@ -1614,7 +1630,6 @@ ecma_op_object_get_property_names (ecma_object_t *obj_p, /**< object */
         /* name with same hash already occured */
         bool is_equal_found = false;
 
-        ecma_collection_iterator_t iter;
         ecma_collection_iterator_init (&iter, ret_p);
 
         while (ecma_collection_iterator_next (&iter))
@@ -1660,6 +1675,39 @@ ecma_op_object_get_property_names (ecma_object_t *obj_p, /**< object */
 } /* ecma_op_object_get_property_names */
 
 /**
+ * The function is used in the assert of ecma_object_get_class_name
+ */
+inline static bool
+ecma_object_check_class_name_is_object (ecma_object_t *obj_p) /**< object */
+{
+#ifndef JERRY_NDEBUG
+  return (ecma_builtin_is (obj_p, ECMA_BUILTIN_ID_GLOBAL)
+#ifndef CONFIG_DISABLE_ES2015_PROMISE_BUILTIN
+          || ecma_builtin_is (obj_p, ECMA_BUILTIN_ID_PROMISE_PROTOTYPE)
+#endif /* !CONFIG_DISABLE_ES2015_PROMISE_BUILTIN */
+#ifndef CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN
+          || ecma_builtin_is (obj_p, ECMA_BUILTIN_ID_ARRAYBUFFER_PROTOTYPE)
+          || ecma_builtin_is (obj_p, ECMA_BUILTIN_ID_TYPEDARRAY_PROTOTYPE)
+          || ecma_builtin_is (obj_p, ECMA_BUILTIN_ID_INT8ARRAY_PROTOTYPE)
+          || ecma_builtin_is (obj_p, ECMA_BUILTIN_ID_UINT8ARRAY_PROTOTYPE)
+          || ecma_builtin_is (obj_p, ECMA_BUILTIN_ID_INT16ARRAY_PROTOTYPE)
+          || ecma_builtin_is (obj_p, ECMA_BUILTIN_ID_UINT16ARRAY_PROTOTYPE)
+          || ecma_builtin_is (obj_p, ECMA_BUILTIN_ID_INT32ARRAY_PROTOTYPE)
+          || ecma_builtin_is (obj_p, ECMA_BUILTIN_ID_UINT32ARRAY_PROTOTYPE)
+          || ecma_builtin_is (obj_p, ECMA_BUILTIN_ID_FLOAT32ARRAY_PROTOTYPE)
+          || ecma_builtin_is (obj_p, ECMA_BUILTIN_ID_UINT8CLAMPEDARRAY_PROTOTYPE)
+#if CONFIG_ECMA_NUMBER_TYPE == CONFIG_ECMA_NUMBER_FLOAT64
+          || ecma_builtin_is (obj_p, ECMA_BUILTIN_ID_FLOAT64ARRAY_PROTOTYPE)
+#endif /* CONFIG_ECMA_NUMBER_TYPE == CONFIG_ECMA_NUMBER_FLOAT64 */
+#endif /* !CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN */
+          || ecma_builtin_is (obj_p, ECMA_BUILTIN_ID_OBJECT_PROTOTYPE));
+#else /* JERRY_NDEBUG */
+  JERRY_UNUSED (obj_p);
+  return true;
+#endif /* !JERRY_NDEBUG */
+} /* ecma_object_check_class_name_is_object */
+
+/**
  * Get [[Class]] string of specified object
  *
  * @return class name magic string
@@ -1690,13 +1738,13 @@ ecma_object_get_class_name (ecma_object_t *obj_p) /**< object */
         {
           return LIT_MAGIC_STRING_ARGUMENTS_UL;
         }
-#ifndef CONFIG_DISABLE_TYPEDARRAY_BUILTIN
+#ifndef CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN
         case ECMA_PSEUDO_ARRAY_TYPEDARRAY:
         case ECMA_PSEUDO_ARRAY_TYPEDARRAY_WITH_INFO:
         {
           return ext_obj_p->u.pseudo_array.u1.class_id;
         }
-#endif /* !CONFIG_DISABLE_TYPEDARRAY_BUILTIN */
+#endif /* !CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN */
         default:
         {
           JERRY_UNREACHABLE ();
@@ -1722,10 +1770,6 @@ ecma_object_get_class_name (ecma_object_t *obj_p) /**< object */
 
         switch (ext_obj_p->u.built_in.id)
         {
-          case ECMA_BUILTIN_ID_OBJECT_PROTOTYPE:
-          {
-            return LIT_MAGIC_STRING_OBJECT_UL;
-          }
 #ifndef CONFIG_DISABLE_MATH_BUILTIN
           case ECMA_BUILTIN_ID_MATH:
           {
@@ -1752,7 +1796,7 @@ ecma_object_get_class_name (ecma_object_t *obj_p) /**< object */
           }
           default:
           {
-            JERRY_ASSERT (ecma_builtin_is (obj_p, ECMA_BUILTIN_ID_GLOBAL));
+            JERRY_ASSERT (ecma_object_check_class_name_is_object (obj_p));
 
             return LIT_MAGIC_STRING_OBJECT_UL;
           }

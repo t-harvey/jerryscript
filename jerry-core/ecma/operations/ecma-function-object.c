@@ -27,9 +27,6 @@
 #include "ecma-try-catch-macro.h"
 #include "jcontext.h"
 
-#define JERRY_INTERNAL
-#include "jerry-internal.h"
-
 /** \addtogroup ecma ECMA
  * @{
  *
@@ -42,8 +39,8 @@
  *
  * See also: ECMA-262 v5, 9.11
  *
- * @return true, if value is callable object;
- *         false - otherwise.
+ * @return true - if value is callable object;
+ *         false - otherwise
  */
 bool
 ecma_op_is_callable (ecma_value_t value) /**< ecma value */
@@ -66,8 +63,8 @@ ecma_op_is_callable (ecma_value_t value) /**< ecma value */
 /**
  * Check whether the value is Object that implements [[Construct]].
  *
- * @return true, if value is constructor object;
- *         false - otherwise.
+ * @return true - if value is constructor object;
+ *         false - otherwise
  */
 bool
 ecma_is_constructor (ecma_value_t value) /**< ecma value */
@@ -313,7 +310,7 @@ ecma_op_function_try_lazy_instantiate_property (ecma_object_t *object_p, /**< th
  * @return pointer to newly created external function object
  */
 ecma_object_t *
-ecma_op_create_external_function_object (ecma_external_pointer_t code_p) /**< pointer to external native handler */
+ecma_op_create_external_function_object (ecma_external_handler_t handler_cb) /**< pointer to external native handler */
 {
   ecma_object_t *prototype_obj_p = ecma_builtin_get (ECMA_BUILTIN_ID_FUNCTION_PROTOTYPE);
 
@@ -331,7 +328,7 @@ ecma_op_create_external_function_object (ecma_external_pointer_t code_p) /**< po
    */
 
   ecma_extended_object_t *ext_func_obj_p = (ecma_extended_object_t *) function_obj_p;
-  ext_func_obj_p->u.external_function = code_p;
+  ext_func_obj_p->u.external_handler_cb = handler_cb;
 
   ecma_string_t *magic_string_prototype_p = ecma_get_magic_string (LIT_MAGIC_STRING_PROTOTYPE);
   ecma_builtin_helper_def_prop (function_obj_p,
@@ -540,11 +537,10 @@ ecma_op_function_call (ecma_object_t *func_obj_p, /**< Function object */
   {
     ecma_extended_object_t *ext_func_obj_p = (ecma_extended_object_t *) func_obj_p;
 
-    ret_value = jerry_dispatch_external_function (func_obj_p,
-                                                  ext_func_obj_p->u.external_function,
-                                                  this_arg_value,
-                                                  arguments_list_p,
-                                                  arguments_list_len);
+    ret_value = ext_func_obj_p->u.external_handler_cb (ecma_make_object_value (func_obj_p),
+                                                       this_arg_value,
+                                                       arguments_list_p,
+                                                       arguments_list_len);
   }
   else
   {

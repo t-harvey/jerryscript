@@ -19,7 +19,7 @@
 #include "config.h"
 #include "jrt.h"
 #include "lit-magic-strings.h"
-#include "jmem-allocator.h"
+#include "jmem.h"
 
 /** \addtogroup ecma ECMA
  * @{
@@ -38,7 +38,11 @@
  * The offset is shifted right by JMEM_ALIGNMENT_LOG.
  * Least significant JMEM_ALIGNMENT_LOG bits of non-shifted offset are zeroes.
  */
-#define ECMA_POINTER_FIELD_WIDTH JMEM_CP_WIDTH
+#ifdef JERRY_CPOINTER_32_BIT
+#define ECMA_POINTER_FIELD_WIDTH 32
+#else /* !JERRY_CPOINTER_32_BIT */
+#define ECMA_POINTER_FIELD_WIDTH 16
+#endif /* JERRY_CPOINTER_32_BIT */
 
 /**
  * The NULL value for compressed pointers
@@ -48,6 +52,18 @@
 /**
  * @}
  */
+
+/**
+ * JerryScript init flags.
+ */
+typedef enum
+{
+  ECMA_INIT_EMPTY               = (0u),      /**< empty flag set */
+  ECMA_INIT_SHOW_OPCODES        = (1u << 0), /**< dump byte-code to log after parse */
+  ECMA_INIT_SHOW_REGEXP_OPCODES = (1u << 1), /**< dump regexp byte-code to log after compilation */
+  ECMA_INIT_MEM_STATS           = (1u << 2), /**< dump memory statistics */
+  ECMA_INIT_DEBUGGER            = (1u << 4), /**< enable all features required by debugging */
+} ecma_init_flag_t;
 
 /**
  * Type of ecma value
@@ -192,6 +208,55 @@ typedef int32_t ecma_integer_value_t;
 typedef uintptr_t ecma_external_pointer_t;
 
 /**
+ * Callback which tells whether the ECMAScript execution should be stopped.
+ */
+typedef ecma_value_t (*ecma_vm_exec_stop_callback_t) (void *user_p);
+
+/**
+ * Function type for user context deallocation
+ */
+typedef void (*ecma_user_context_deinit_t) (void *user_context_p);
+
+/**
+ * Type of an external function handler.
+ */
+typedef ecma_value_t (*ecma_external_handler_t) (const ecma_value_t function_obj,
+                                                 const ecma_value_t this_val,
+                                                 const ecma_value_t args_p[],
+                                                 const ecma_length_t args_count);
+
+/**
+ * Native free callback of an object (deprecated).
+ */
+typedef void (*ecma_object_free_callback_t) (const uintptr_t native_p);
+
+/**
+ * Native free callback of an object.
+ */
+typedef void (*ecma_object_native_free_callback_t) (void *native_p);
+
+/**
+ * Type information of a native pointer.
+ */
+typedef struct
+{
+  ecma_object_native_free_callback_t free_cb; /**< the free callback of the native pointer */
+} ecma_object_native_info_t;
+
+/**
+ * Representation for native pointer data.
+ */
+typedef struct
+{
+  void *data_p; /**< points to the data of the object */
+  union
+  {
+    ecma_object_free_callback_t callback_p; /**< callback */
+    ecma_object_native_info_t *info_p; /**< native info */
+  } u;
+} ecma_native_pointer_t;
+
+/**
  * Special property identifiers.
  */
 typedef enum
@@ -201,9 +266,6 @@ typedef enum
   /* Note: when new special types are added
    * ECMA_PROPERTY_IS_PROPERTY_PAIR must be updated as well. */
   ECMA_SPECIAL_PROPERTY_HASHMAP, /**< hashmap property */
-
-  ECMA_INTERNAL_PROPERTY_NATIVE_HANDLE, /**< native handle associated with an object */
-  ECMA_INTERNAL_PROPERTY_FREE_CALLBACK, /**< object's native free callback */
 
   ECMA_SPECIAL_PROPERTY__COUNT /**< Number of special property types */
 } ecma_internal_property_id_t;
@@ -451,7 +513,7 @@ typedef struct
 /**
  * Returns the internal property type
  */
-#define ECMA_PROPERTY_GET_INTERNAL_PROPERTY_TYPE(property_p) \
+#define ECMA_PROPERTY_GET_SPECIAL_PROPERTY_TYPE(property_p) \
   ((ecma_internal_property_id_t) (*(property_p) >> ECMA_PROPERTY_FLAG_SHIFT))
 
 /**
@@ -543,10 +605,10 @@ typedef enum
 typedef enum
 {
   /* ECMA_OBJECT_TYPE_GENERAL (0) with built-in flag. */
-  /* ECMA_OBJECT_TYPE_FUNCTION (1) with built-in flag. */
-  /* ECMA_OBJECT_TYPE_EXTERNAL_FUNCTION (2) with built-in flag. */
-  /* ECMA_OBJECT_TYPE_ARRAY (3) with built-in flag. */
-  /* ECMA_OBJECT_TYPE_STRING (4) with built-in flag. */
+  /* ECMA_OBJECT_TYPE_CLASS (1) with built-in flag. */
+  /* ECMA_OBJECT_TYPE_FUNCTION (2) with built-in flag. */
+  /* ECMA_OBJECT_TYPE_EXTERNAL_FUNCTION (3) with built-in flag. */
+  /* ECMA_OBJECT_TYPE_ARRAY (4) with built-in flag. */
   ECMA_LEXICAL_ENVIRONMENT_DECLARATIVE = 5, /**< declarative lexical environment */
   ECMA_LEXICAL_ENVIRONMENT_OBJECT_BOUND = 6, /**< object-bound lexical environment */
   ECMA_LEXICAL_ENVIRONMENT_THIS_OBJECT_BOUND = 7, /**< object-bound lexical environment
@@ -710,7 +772,7 @@ typedef struct
       ecma_length_t args_length; /**< length of arguments */
     } bound_function;
 
-    ecma_external_pointer_t external_function; /**< external function */
+    ecma_external_handler_t external_handler_cb; /**< external function */
   } u;
 } ecma_extended_object_t;
 
@@ -1156,7 +1218,7 @@ typedef struct
 
 #endif /* !CONFIG_ECMA_LCACHE_DISABLE */
 
-#ifndef CONFIG_DISABLE_TYPEDARRAY_BUILTIN
+#ifndef CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN
 
 /**
  * Some internal properties of TypedArray object.
@@ -1170,7 +1232,7 @@ typedef struct
   ecma_length_t array_length; /**< the array length */
 } ecma_extended_typedarray_object_t;
 
-#endif /* !CONFIG_DISABLE_TYPEDARRAY_BUILTIN */
+#endif /* !CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN */
 /**
  * @}
  * @}

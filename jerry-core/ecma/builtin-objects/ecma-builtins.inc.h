@@ -298,7 +298,7 @@ BUILTIN (ECMA_BUILTIN_ID_TYPE_ERROR_THROWER,
          true,
          type_error_thrower)
 
-#ifndef CONFIG_DISABLE_ARRAYBUFFER_BUILTIN
+#ifndef CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN
 
 /* The ArrayBuffer.prototype object (ES2015 24.1.4) */
 BUILTIN (ECMA_BUILTIN_ID_ARRAYBUFFER_PROTOTYPE,
@@ -315,9 +315,6 @@ BUILTIN (ECMA_BUILTIN_ID_ARRAYBUFFER,
          true,
          true,
          arraybuffer)
-#endif /* !CONFIG_DISABLE_ARRAYBUFFER_BUILTIN */
-
-#ifndef CONFIG_DISABLE_TYPEDARRAY_BUILTIN
 
  /* The %TypedArrayPrototype% object (ES2015 24.2.3) */
 BUILTIN (ECMA_BUILTIN_ID_TYPEDARRAY_PROTOTYPE,
@@ -349,7 +346,139 @@ BUILTIN (ECMA_BUILTIN_ID_INT8ARRAY,
          true,
          int8array)
 
-#endif /* !CONFIG_DISABLE_TYPEDARRAY_BUILTIN */
+BUILTIN (ECMA_BUILTIN_ID_UINT8ARRAY_PROTOTYPE,
+         ECMA_OBJECT_TYPE_GENERAL,
+         ECMA_BUILTIN_ID_TYPEDARRAY_PROTOTYPE,
+         true,
+         true,
+         uint8array_prototype)
+
+BUILTIN (ECMA_BUILTIN_ID_UINT8ARRAY,
+         ECMA_OBJECT_TYPE_FUNCTION,
+         ECMA_BUILTIN_ID_TYPEDARRAY,
+         true,
+         true,
+         uint8array)
+
+BUILTIN (ECMA_BUILTIN_ID_INT16ARRAY_PROTOTYPE,
+         ECMA_OBJECT_TYPE_GENERAL,
+         ECMA_BUILTIN_ID_TYPEDARRAY_PROTOTYPE,
+         true,
+         true,
+         int16array_prototype)
+
+BUILTIN (ECMA_BUILTIN_ID_INT16ARRAY,
+         ECMA_OBJECT_TYPE_FUNCTION,
+         ECMA_BUILTIN_ID_TYPEDARRAY,
+         true,
+         true,
+         int16array)
+
+BUILTIN (ECMA_BUILTIN_ID_UINT16ARRAY_PROTOTYPE,
+         ECMA_OBJECT_TYPE_GENERAL,
+         ECMA_BUILTIN_ID_TYPEDARRAY_PROTOTYPE,
+         true,
+         true,
+         uint16array_prototype)
+
+BUILTIN (ECMA_BUILTIN_ID_UINT16ARRAY,
+         ECMA_OBJECT_TYPE_FUNCTION,
+         ECMA_BUILTIN_ID_TYPEDARRAY,
+         true,
+         true,
+         uint16array)
+
+BUILTIN (ECMA_BUILTIN_ID_INT32ARRAY_PROTOTYPE,
+         ECMA_OBJECT_TYPE_GENERAL,
+         ECMA_BUILTIN_ID_TYPEDARRAY_PROTOTYPE,
+         true,
+         true,
+         int32array_prototype)
+
+BUILTIN (ECMA_BUILTIN_ID_INT32ARRAY,
+         ECMA_OBJECT_TYPE_FUNCTION,
+         ECMA_BUILTIN_ID_TYPEDARRAY,
+         true,
+         true,
+         int32array)
+
+BUILTIN (ECMA_BUILTIN_ID_UINT32ARRAY_PROTOTYPE,
+         ECMA_OBJECT_TYPE_GENERAL,
+         ECMA_BUILTIN_ID_TYPEDARRAY_PROTOTYPE,
+         true,
+         true,
+         uint32array_prototype)
+
+BUILTIN (ECMA_BUILTIN_ID_UINT32ARRAY,
+         ECMA_OBJECT_TYPE_FUNCTION,
+         ECMA_BUILTIN_ID_TYPEDARRAY,
+         true,
+         true,
+         uint32array)
+
+BUILTIN (ECMA_BUILTIN_ID_FLOAT32ARRAY_PROTOTYPE,
+         ECMA_OBJECT_TYPE_GENERAL,
+         ECMA_BUILTIN_ID_TYPEDARRAY_PROTOTYPE,
+         true,
+         true,
+         float32array_prototype)
+
+BUILTIN (ECMA_BUILTIN_ID_FLOAT32ARRAY,
+         ECMA_OBJECT_TYPE_FUNCTION,
+         ECMA_BUILTIN_ID_TYPEDARRAY,
+         true,
+         true,
+         float32array)
+
+#if CONFIG_ECMA_NUMBER_TYPE == CONFIG_ECMA_NUMBER_FLOAT64
+BUILTIN (ECMA_BUILTIN_ID_FLOAT64ARRAY_PROTOTYPE,
+         ECMA_OBJECT_TYPE_GENERAL,
+         ECMA_BUILTIN_ID_TYPEDARRAY_PROTOTYPE,
+         true,
+         true,
+         float64array_prototype)
+
+BUILTIN (ECMA_BUILTIN_ID_FLOAT64ARRAY,
+         ECMA_OBJECT_TYPE_FUNCTION,
+         ECMA_BUILTIN_ID_TYPEDARRAY,
+         true,
+         true,
+         float64array)
+#endif /* CONFIG_ECMA_NUMBER_TYPE == CONFIG_ECMA_NUMBER_FLOAT64 */
+
+BUILTIN (ECMA_BUILTIN_ID_UINT8CLAMPEDARRAY_PROTOTYPE,
+         ECMA_OBJECT_TYPE_GENERAL,
+         ECMA_BUILTIN_ID_TYPEDARRAY_PROTOTYPE,
+         true,
+         true,
+         uint8clampedarray_prototype)
+
+BUILTIN (ECMA_BUILTIN_ID_UINT8CLAMPEDARRAY,
+         ECMA_OBJECT_TYPE_FUNCTION,
+         ECMA_BUILTIN_ID_TYPEDARRAY,
+         true,
+         true,
+         uint8clampedarray)
+
+#endif /* !CONFIG_DISABLE_ES2015_TYPEDARRAY_BUILTIN */
+
+#ifndef CONFIG_DISABLE_ES2015_PROMISE_BUILTIN
+
+BUILTIN (ECMA_BUILTIN_ID_PROMISE_PROTOTYPE,
+         ECMA_OBJECT_TYPE_GENERAL,
+         ECMA_BUILTIN_ID_OBJECT_PROTOTYPE,
+         true,
+         true,
+         promise_prototype)
+
+BUILTIN (ECMA_BUILTIN_ID_PROMISE,
+         ECMA_OBJECT_TYPE_FUNCTION,
+         ECMA_BUILTIN_ID_FUNCTION_PROTOTYPE,
+         true,
+         true,
+         promise)
+
+#endif /* !CONFIG_DISABLE_ES2015_PROMISE_BUILTIN */
 
 /* The Global object (15.1) */
 BUILTIN (ECMA_BUILTIN_ID_GLOBAL,

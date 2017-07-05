@@ -19,6 +19,7 @@
 #include "common.h"
 
 #include "byte-code.h"
+#include "debugger.h"
 #include "js-parser.h"
 #include "js-parser-limits.h"
 #include "js-lexer.h"
@@ -51,6 +52,7 @@
 #define PARSER_ARGUMENTS_NOT_NEEDED           0x04000u
 #define PARSER_LEXICAL_ENV_NEEDED             0x08000u
 #define PARSER_HAS_LATE_LIT_INIT              0x10000u
+#define PARSER_DEBUGGER_BREAKPOINT_APPENDED   0x20000u
 
 /* Expression parsing flags. */
 #define PARSE_EXPR                            0x00
@@ -190,6 +192,16 @@ typedef struct parser_branch_node_t
   parser_branch_t branch;                     /**< branch */
 } parser_branch_node_t;
 
+#ifdef JERRY_DEBUGGER
+/**
+ * Extra information for each breakpoint.
+ */
+typedef struct
+{
+  uint32_t value;                             /**< line or offset of the breakpoint */
+} parser_breakpoint_info_t;
+#endif /* JERRY_DEBUGGER */
+
 /**
  * Those members of a context which needs
  * to be saved when a sub-function is parsed.
@@ -270,6 +282,12 @@ typedef struct
   int is_show_opcodes;                        /**< show opcodes */
   uint32_t total_byte_code_size;              /**< total byte code size */
 #endif /* PARSER_DUMP_BYTE_CODE */
+
+#ifdef JERRY_DEBUGGER
+  parser_breakpoint_info_t breakpoint_info[JERRY_DEBUGGER_SEND_MAX (parser_list_t)]; /**< extra data for breakpoints */
+  uint16_t breakpoint_info_count; /**< current breakpoint index */
+  parser_line_counter_t last_breakpoint_line; /**< last line where breakpoint was inserted */
+#endif /* JERRY_DEBUGGER */
 } parser_context_t;
 
 /**
@@ -381,7 +399,7 @@ void lexer_expect_object_literal_id (parser_context_t *context_p, bool must_be_i
 void lexer_construct_literal_object (parser_context_t *context_p, lexer_lit_location_t *literal_p,
                                      uint8_t literal_type);
 bool lexer_construct_number_object (parser_context_t *context_p, bool push_number_allowed, bool is_negative_number);
-void lexer_construct_function_object (parser_context_t *context_p, uint32_t extra_status_flags);
+uint16_t lexer_construct_function_object (parser_context_t *context_p, uint32_t extra_status_flags);
 void lexer_construct_regexp_object (parser_context_t *context_p, bool parse_only);
 bool lexer_compare_identifier_to_current (parser_context_t *context_p, const lexer_lit_location_t *right);
 
@@ -427,6 +445,15 @@ ecma_compiled_code_t *parser_parse_function (parser_context_t *context_p, uint32
 /* Error management. */
 
 void parser_raise_error (parser_context_t *context_p, parser_error_t error);
+
+/* Debug functions. */
+
+#ifdef JERRY_DEBUGGER
+
+void parser_append_breakpoint_info (parser_context_t *context_p, jerry_debugger_header_type_t type, uint32_t value);
+void parser_send_breakpoints (parser_context_t *context_p, jerry_debugger_header_type_t type);
+
+#endif /* JERRY_DEBUGGER */
 
 /**
  * @}
